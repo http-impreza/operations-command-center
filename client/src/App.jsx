@@ -16,6 +16,7 @@ const navigationItems = [
 function App() {
   const [dashboard, setDashboard] = useState(null);
   const [error, setError] = useState('');
+  const [selectedReview, setSelectedReview] = useState(null);
 
   useEffect(() => {
     let ignoreResponse = false;
@@ -85,6 +86,7 @@ function App() {
                 title="Overdue Reviews"
                 items={dashboard.overdueReviews}
                 tone="urgent"
+                onSelectReview={setSelectedReview}
               />
               <BlockedItems items={dashboard.blockedItems} />
               <ReviewsTable
@@ -92,12 +94,17 @@ function App() {
                 title="Due Soon"
                 items={dashboard.dueSoonReviews}
                 tone="pending"
+                onSelectReview={setSelectedReview}
               />
               <ActivityList items={dashboard.recentActivity} />
             </section>
           </>
         )}
       </main>
+
+      {selectedReview && (
+        <ReviewDrawer review={selectedReview} onClose={() => setSelectedReview(null)} />
+      )}
     </div>
   );
 }
@@ -138,7 +145,7 @@ function SummaryCards({ cards }) {
   );
 }
 
-function ReviewsTable({ className = '', title, items, tone }) {
+function ReviewsTable({ className = '', title, items, tone, onSelectReview }) {
   return (
     <section className={`panel table-panel ${className}`}>
       <PanelHeader title={title} count={items.length} />
@@ -155,7 +162,18 @@ function ReviewsTable({ className = '', title, items, tone }) {
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id}>
+              <tr
+                className="clickable-row"
+                key={item.id}
+                onClick={() => onSelectReview(item)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelectReview(item);
+                  }
+                }}
+                tabIndex={0}
+              >
                 <td>
                   <strong>{item.residentLabel}</strong>
                 </td>
@@ -170,6 +188,86 @@ function ReviewsTable({ className = '', title, items, tone }) {
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function ReviewDrawer({ review, onClose }) {
+  return (
+    <aside className="detail-drawer" aria-label="Review details">
+      <div className="drawer-header">
+        <div>
+          <span className="drawer-kicker">{review.reviewType}</span>
+          <h2>{review.residentLabel}</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close review details">
+          Close
+        </button>
+      </div>
+
+      <div className="drawer-body">
+        <section className="drawer-section">
+          <div className="drawer-status-row">
+            <StatusPill label={review.status} tone={review.status === 'Overdue' ? 'urgent' : 'pending'} />
+            <StatusPill label={review.priority} tone={priorityTone(review.priority, 'pending')} />
+          </div>
+
+          <dl className="detail-list">
+            <div>
+              <dt>Owner</dt>
+              <dd>{review.owner}</dd>
+            </div>
+            <div>
+              <dt>Due Date</dt>
+              <dd>{review.dueDate}</dd>
+            </div>
+            <div>
+              <dt>Signature</dt>
+              <dd>{review.signatureStatus}</dd>
+            </div>
+            <div>
+              <dt>Blocker</dt>
+              <dd>{review.blocker || 'None'}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <DrawerSection title="Next Step">
+          <p>{review.nextStep}</p>
+        </DrawerSection>
+
+        <DrawerSection title="Notes">
+          <p>{review.notes}</p>
+        </DrawerSection>
+
+        <DrawerSection title="Follow-Up Items">
+          <ul className="drawer-checklist">
+            {review.followUps.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </DrawerSection>
+
+        <DrawerSection title="Recent Activity">
+          <ol className="drawer-history">
+            {review.history.map((item) => (
+              <li key={item.id}>
+                <p>{item.label}</p>
+                <time dateTime={item.timestamp}>{formatActivityTime(item.timestamp)}</time>
+              </li>
+            ))}
+          </ol>
+        </DrawerSection>
+      </div>
+    </aside>
+  );
+}
+
+function DrawerSection({ title, children }) {
+  return (
+    <section className="drawer-section">
+      <h3>{title}</h3>
+      {children}
     </section>
   );
 }

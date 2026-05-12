@@ -371,6 +371,11 @@ tbody tr:hover {
   color: #12684f;
 }
 
+.status-pill.complete {
+  background: #dff3ea;
+  color: #12684f;
+}
+
 .queue-list,
 .activity-list {
   display: grid;
@@ -531,6 +536,34 @@ time {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.drawer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.drawer-actions button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #263241;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.drawer-actions button:hover {
+  border-color: #b9c7d6;
+  background: #f4f8fa;
+}
+
+.drawer-actions button:focus {
+  outline: 2px solid #1c6f79;
+  outline-offset: 2px;
 }
 
 .detail-list {

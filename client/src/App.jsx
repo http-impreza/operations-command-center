@@ -13,6 +13,25 @@ const navigationItems = [
   'Settings',
 ];
 
+const reviewActions = [
+  {
+    id: 'complete',
+    label: 'Mark Complete',
+  },
+  {
+    id: 'follow-up',
+    label: 'Mark Follow-Up Needed',
+  },
+  {
+    id: 'signature',
+    label: 'Mark Waiting on Signature',
+  },
+  {
+    id: 'blocked',
+    label: 'Mark Blocked',
+  },
+];
+
 function App() {
   const [dashboard, setDashboard] = useState(null);
   const [error, setError] = useState('');
@@ -48,6 +67,34 @@ function App() {
       ignoreResponse = true;
     };
   }, []);
+
+  function handleReviewAction(actionId) {
+    if (!selectedReview) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const updatedReview = applyReviewAction(selectedReview, actionId, timestamp);
+    const activityEntry = {
+      id: `local-${actionId}-${selectedReview.id}-${Date.now()}`,
+      timestamp,
+      label: `${updatedReview.residentLabel} ${activityLabelForAction(actionId)}.`,
+    };
+
+    setSelectedReview(updatedReview);
+    setDashboard((currentDashboard) => {
+      if (!currentDashboard) {
+        return currentDashboard;
+      }
+
+      return {
+        ...currentDashboard,
+        overdueReviews: updateReviewCollection(currentDashboard.overdueReviews, updatedReview),
+        dueSoonReviews: updateReviewCollection(currentDashboard.dueSoonReviews, updatedReview),
+        recentActivity: [activityEntry, ...currentDashboard.recentActivity],
+      };
+    });
+  }
 
   return (
     <div className="app-shell">
@@ -103,7 +150,11 @@ function App() {
       </main>
 
       {selectedReview && (
-        <ReviewDrawer review={selectedReview} onClose={() => setSelectedReview(null)} />
+        <ReviewDrawer
+          review={selectedReview}
+          onApplyAction={handleReviewAction}
+          onClose={() => setSelectedReview(null)}
+        />
       )}
     </div>
   );
@@ -192,7 +243,7 @@ function ReviewsTable({ className = '', title, items, tone, onSelectReview }) {
   );
 }
 
-function ReviewDrawer({ review, onClose }) {
+function ReviewDrawer({ review, onApplyAction, onClose }) {
   return (
     <aside className="detail-drawer" aria-label="Review details">
       <div className="drawer-header">
@@ -208,7 +259,7 @@ function ReviewDrawer({ review, onClose }) {
       <div className="drawer-body">
         <section className="drawer-section">
           <div className="drawer-status-row">
-            <StatusPill label={review.status} tone={review.status === 'Overdue' ? 'urgent' : 'pending'} />
+            <StatusPill label={review.status} tone={statusTone(review.status)} />
             <StatusPill label={review.priority} tone={priorityTone(review.priority, 'pending')} />
           </div>
 
@@ -231,6 +282,16 @@ function ReviewDrawer({ review, onClose }) {
             </div>
           </dl>
         </section>
+
+        <DrawerSection title="Workflow Actions">
+          <div className="drawer-actions">
+            {reviewActions.map((action) => (
+              <button key={action.id} type="button" onClick={() => onApplyAction(action.id)}>
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </DrawerSection>
 
         <DrawerSection title="Next Step">
           <p>{review.nextStep}</p>
@@ -325,6 +386,97 @@ function PanelHeader({ title, count }) {
 
 function StatusPill({ label, tone }) {
   return <span className={`status-pill ${tone}`}>{label}</span>;
+}
+
+function updateReviewCollection(items, updatedReview) {
+  return items.map((item) => (item.id === updatedReview.id ? updatedReview : item));
+}
+
+function applyReviewAction(review, actionId, timestamp) {
+  const actionUpdate = reviewUpdateForAction(actionId);
+
+  return {
+    ...review,
+    ...actionUpdate,
+    history: [
+      {
+        id: `history-${actionId}-${review.id}-${Date.now()}`,
+        timestamp,
+        label: activityLabelForAction(actionId),
+      },
+      ...review.history,
+    ],
+  };
+}
+
+function reviewUpdateForAction(actionId) {
+  if (actionId === 'complete') {
+    return {
+      status: 'Completed',
+      priority: 'Low',
+      blocker: '',
+      signatureStatus: 'Complete',
+      nextStep: 'No open next step.',
+    };
+  }
+
+  if (actionId === 'follow-up') {
+    return {
+      status: 'Follow-Up Needed',
+      priority: 'Medium',
+      blocker: 'Follow-up needed',
+      nextStep: 'Assign owner to complete follow-up.',
+    };
+  }
+
+  if (actionId === 'signature') {
+    return {
+      status: 'Waiting on Signature',
+      priority: 'High',
+      blocker: 'Waiting on signature',
+      signatureStatus: 'Signature needed',
+      nextStep: 'Route packet for signature and confirm completion.',
+    };
+  }
+
+  return {
+    status: 'Blocked',
+    priority: 'High',
+    blocker: 'Operational blocker needs resolution',
+    nextStep: 'Identify blocker owner and document resolution path.',
+  };
+}
+
+function activityLabelForAction(actionId) {
+  if (actionId === 'complete') {
+    return 'marked complete';
+  }
+
+  if (actionId === 'follow-up') {
+    return 'marked follow-up needed';
+  }
+
+  if (actionId === 'signature') {
+    return 'marked waiting on signature';
+  }
+
+  return 'marked blocked';
+}
+
+function statusTone(status) {
+  if (status === 'Overdue' || status === 'Blocked') {
+    return 'urgent';
+  }
+
+  if (status === 'Completed') {
+    return 'complete';
+  }
+
+  if (status === 'Waiting on Signature') {
+    return 'blocked';
+  }
+
+  return 'pending';
 }
 
 function priorityTone(priority, fallback) {

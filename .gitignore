@@ -3,3 +3,4 @@ client/dist
 .env
 data/*
 !data/.gitkeep
+docs/

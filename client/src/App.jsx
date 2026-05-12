@@ -51,10 +51,7 @@ function App() {
         const data = await response.json();
 
         if (!ignoreResponse) {
-          setDashboard({
-            ...data,
-            completedReviews: [],
-          });
+          setDashboard(data);
           setError('');
         }
       } catch (requestError) {
@@ -71,44 +68,32 @@ function App() {
     };
   }, []);
 
-  function handleReviewAction(actionId) {
+  async function handleReviewAction(actionId) {
     if (!selectedReview) {
       return;
     }
 
-    const timestamp = new Date().toISOString();
-    const updatedReview = applyReviewAction(selectedReview, actionId, timestamp);
-    const activityEntry = {
-      id: `local-${actionId}-${selectedReview.id}-${Date.now()}`,
-      timestamp,
-      label: `${updatedReview.residentLabel} ${activityLabelForAction(actionId)}.`,
-    };
+    try {
+      const response = await fetch(`/api/work-items/${selectedReview.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actionId }),
+      });
 
-    setSelectedReview(updatedReview);
-    setDashboard((currentDashboard) => {
-      if (!currentDashboard) {
-        return currentDashboard;
+      if (!response.ok) {
+        throw new Error(`Status update failed with ${response.status}`);
       }
 
-      return {
-        ...currentDashboard,
-        overdueReviews: updateOpenReviewCollection(
-          currentDashboard.overdueReviews,
-          updatedReview,
-          'overdueReviews',
-        ),
-        dueSoonReviews: updateOpenReviewCollection(
-          currentDashboard.dueSoonReviews,
-          updatedReview,
-          'dueSoonReviews',
-        ),
-        completedReviews: updateCompletedReviews(
-          currentDashboard.completedReviews,
-          updatedReview,
-        ),
-        recentActivity: [activityEntry, ...currentDashboard.recentActivity],
-      };
-    });
+      const result = await response.json();
+
+      setSelectedReview(result.workItem);
+      setDashboard(result.dashboard);
+      setError('');
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   }
 
   return (
@@ -140,7 +125,7 @@ function App() {
 
         {dashboard && (
           <>
-            <SummaryCards cards={buildSummaryCards(dashboard)} />
+            <SummaryCards cards={dashboard.summaryCards} />
 
             <section className="operations-grid" aria-label="Operations dashboard">
               <ReviewsTable
@@ -405,127 +390,6 @@ function StatusPill({ label, tone }) {
   return <span className={`status-pill ${tone}`}>{label}</span>;
 }
 
-function buildSummaryCards(dashboard) {
-  const originalCards = dashboard.summaryCards;
-  const openReviews = [...dashboard.overdueReviews, ...dashboard.dueSoonReviews];
-  const completedBase = originalCards.find((card) => card.id === 'completed')?.value ?? 0;
-  const blockedOperationalReviews = openReviews.filter((review) =>
-    isReviewBlockingStatus(review.status),
-  );
-  const valuesById = {
-    overdue: dashboard.overdueReviews.length,
-    blocked: dashboard.blockedItems.length + blockedOperationalReviews.length,
-    'due-soon': dashboard.dueSoonReviews.length,
-    completed: completedBase + dashboard.completedReviews.length,
-  };
-
-  return originalCards.map((card) => ({
-    ...card,
-    value: valuesById[card.id] ?? card.value,
-  }));
-}
-
-function updateOpenReviewCollection(items, updatedReview, queueKey) {
-  if (updatedReview.status === 'Completed') {
-    return items.filter((item) => item.id !== updatedReview.id);
-  }
-
-  if (items.some((item) => item.id === updatedReview.id)) {
-    return items.map((item) => (item.id === updatedReview.id ? updatedReview : item));
-  }
-
-  if (updatedReview.queueKey === queueKey) {
-    return [updatedReview, ...items];
-  }
-
-  return items;
-}
-
-function updateCompletedReviews(items = [], updatedReview) {
-  if (updatedReview.status === 'Completed') {
-    const completedReview = { ...updatedReview, queueKey: undefined };
-
-    if (items.some((item) => item.id === updatedReview.id)) {
-      return items.map((item) => (item.id === updatedReview.id ? completedReview : item));
-    }
-
-    return [completedReview, ...items];
-  }
-
-  return items.filter((item) => item.id !== updatedReview.id);
-}
-
-function applyReviewAction(review, actionId, timestamp) {
-  const actionUpdate = reviewUpdateForAction(actionId);
-
-  return {
-    ...review,
-    ...actionUpdate,
-    history: [
-      {
-        id: `history-${actionId}-${review.id}-${Date.now()}`,
-        timestamp,
-        label: activityLabelForAction(actionId),
-      },
-      ...review.history,
-    ],
-  };
-}
-
-function reviewUpdateForAction(actionId) {
-  if (actionId === 'complete') {
-    return {
-      status: 'Completed',
-      priority: 'Low',
-      blocker: '',
-      signatureStatus: 'Complete',
-      nextStep: 'No open next step.',
-    };
-  }
-
-  if (actionId === 'follow-up') {
-    return {
-      status: 'Follow-Up Needed',
-      priority: 'Medium',
-      blocker: 'Follow-up needed',
-      nextStep: 'Assign owner to complete follow-up.',
-    };
-  }
-
-  if (actionId === 'signature') {
-    return {
-      status: 'Waiting on Signature',
-      priority: 'High',
-      blocker: 'Waiting on signature',
-      signatureStatus: 'Signature needed',
-      nextStep: 'Route packet for signature and confirm completion.',
-    };
-  }
-
-  return {
-    status: 'Blocked',
-    priority: 'High',
-    blocker: 'Operational blocker needs resolution',
-    nextStep: 'Identify blocker owner and document resolution path.',
-  };
-}
-
-function activityLabelForAction(actionId) {
-  if (actionId === 'complete') {
-    return 'marked complete';
-  }
-
-  if (actionId === 'follow-up') {
-    return 'marked follow-up needed';
-  }
-
-  if (actionId === 'signature') {
-    return 'marked waiting on signature';
-  }
-
-  return 'marked blocked';
-}
-
 function statusTone(status) {
   if (status === 'Overdue' || status === 'Blocked') {
     return 'urgent';
@@ -540,10 +404,6 @@ function statusTone(status) {
   }
 
   return 'pending';
-}
-
-function isReviewBlockingStatus(status) {
-  return ['Blocked', 'Follow-Up Needed', 'Waiting on Signature'].includes(status);
 }
 
 function priorityTone(priority, fallback) {

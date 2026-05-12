@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "dev": "node --no-warnings --watch src/index.js",
+    "start": "node --no-warnings src/index.js",
+    "db:reset": "node --no-warnings src/resetDatabase.js"
   },
   "dependencies": {
-    "express": "^5.0.0"
+    "express": "^5.0.0",
+    "sqlite": "^5.1.1"
   }
 }

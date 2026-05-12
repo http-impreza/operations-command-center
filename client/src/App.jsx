@@ -51,7 +51,10 @@ function App() {
         const data = await response.json();
 
         if (!ignoreResponse) {
-          setDashboard(data);
+          setDashboard({
+            ...data,
+            completedReviews: [],
+          });
           setError('');
         }
       } catch (requestError) {
@@ -89,8 +92,20 @@ function App() {
 
       return {
         ...currentDashboard,
-        overdueReviews: updateReviewCollection(currentDashboard.overdueReviews, updatedReview),
-        dueSoonReviews: updateReviewCollection(currentDashboard.dueSoonReviews, updatedReview),
+        overdueReviews: updateOpenReviewCollection(
+          currentDashboard.overdueReviews,
+          updatedReview,
+          'overdueReviews',
+        ),
+        dueSoonReviews: updateOpenReviewCollection(
+          currentDashboard.dueSoonReviews,
+          updatedReview,
+          'dueSoonReviews',
+        ),
+        completedReviews: updateCompletedReviews(
+          currentDashboard.completedReviews,
+          updatedReview,
+        ),
         recentActivity: [activityEntry, ...currentDashboard.recentActivity],
       };
     });
@@ -125,13 +140,14 @@ function App() {
 
         {dashboard && (
           <>
-            <SummaryCards cards={dashboard.summaryCards} />
+            <SummaryCards cards={buildSummaryCards(dashboard)} />
 
             <section className="operations-grid" aria-label="Operations dashboard">
               <ReviewsTable
                 className="span-8"
                 title="Overdue Reviews"
                 items={dashboard.overdueReviews}
+                queueKey="overdueReviews"
                 tone="urgent"
                 onSelectReview={setSelectedReview}
               />
@@ -140,6 +156,7 @@ function App() {
                 className="span-8"
                 title="Due Soon"
                 items={dashboard.dueSoonReviews}
+                queueKey="dueSoonReviews"
                 tone="pending"
                 onSelectReview={setSelectedReview}
               />
@@ -196,7 +213,7 @@ function SummaryCards({ cards }) {
   );
 }
 
-function ReviewsTable({ className = '', title, items, tone, onSelectReview }) {
+function ReviewsTable({ className = '', title, items, queueKey, tone, onSelectReview }) {
   return (
     <section className={`panel table-panel ${className}`}>
       <PanelHeader title={title} count={items.length} />
@@ -216,11 +233,11 @@ function ReviewsTable({ className = '', title, items, tone, onSelectReview }) {
               <tr
                 className="clickable-row"
                 key={item.id}
-                onClick={() => onSelectReview(item)}
+                onClick={() => onSelectReview({ ...item, queueKey })}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    onSelectReview(item);
+                    onSelectReview({ ...item, queueKey });
                   }
                 }}
                 tabIndex={0}
@@ -388,8 +405,54 @@ function StatusPill({ label, tone }) {
   return <span className={`status-pill ${tone}`}>{label}</span>;
 }
 
-function updateReviewCollection(items, updatedReview) {
-  return items.map((item) => (item.id === updatedReview.id ? updatedReview : item));
+function buildSummaryCards(dashboard) {
+  const originalCards = dashboard.summaryCards;
+  const openReviews = [...dashboard.overdueReviews, ...dashboard.dueSoonReviews];
+  const completedBase = originalCards.find((card) => card.id === 'completed')?.value ?? 0;
+  const blockedOperationalReviews = openReviews.filter((review) =>
+    isReviewBlockingStatus(review.status),
+  );
+  const valuesById = {
+    overdue: dashboard.overdueReviews.length,
+    blocked: dashboard.blockedItems.length + blockedOperationalReviews.length,
+    'due-soon': dashboard.dueSoonReviews.length,
+    completed: completedBase + dashboard.completedReviews.length,
+  };
+
+  return originalCards.map((card) => ({
+    ...card,
+    value: valuesById[card.id] ?? card.value,
+  }));
+}
+
+function updateOpenReviewCollection(items, updatedReview, queueKey) {
+  if (updatedReview.status === 'Completed') {
+    return items.filter((item) => item.id !== updatedReview.id);
+  }
+
+  if (items.some((item) => item.id === updatedReview.id)) {
+    return items.map((item) => (item.id === updatedReview.id ? updatedReview : item));
+  }
+
+  if (updatedReview.queueKey === queueKey) {
+    return [updatedReview, ...items];
+  }
+
+  return items;
+}
+
+function updateCompletedReviews(items = [], updatedReview) {
+  if (updatedReview.status === 'Completed') {
+    const completedReview = { ...updatedReview, queueKey: undefined };
+
+    if (items.some((item) => item.id === updatedReview.id)) {
+      return items.map((item) => (item.id === updatedReview.id ? completedReview : item));
+    }
+
+    return [completedReview, ...items];
+  }
+
+  return items.filter((item) => item.id !== updatedReview.id);
 }
 
 function applyReviewAction(review, actionId, timestamp) {
@@ -477,6 +540,10 @@ function statusTone(status) {
   }
 
   return 'pending';
+}
+
+function isReviewBlockingStatus(status) {
+  return ['Blocked', 'Follow-Up Needed', 'Waiting on Signature'].includes(status);
 }
 
 function priorityTone(priority, fallback) {

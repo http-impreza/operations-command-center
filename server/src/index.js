@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  createWorkItem,
   getDashboardPayload,
   initializeDatabase,
   updateWorkItemStatus,
@@ -23,6 +24,18 @@ app.get('/api/dashboard', (_req, res) => {
   res.json(getDashboardPayload());
 });
 
+app.post('/api/work-items', (req, res) => {
+  const validationError = validateCreateWorkItem(req.body);
+
+  if (validationError) {
+    return res.status(400).json({
+      error: validationError,
+    });
+  }
+
+  return res.status(201).json(createWorkItem(req.body));
+});
+
 app.patch('/api/work-items/:id/status', (req, res) => {
   const { actionId } = req.body;
 
@@ -42,6 +55,26 @@ app.patch('/api/work-items/:id/status', (req, res) => {
 
   return res.json(result);
 });
+
+function validateCreateWorkItem(body) {
+  const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'nextStep'];
+
+  for (const field of requiredFields) {
+    if (typeof body[field] !== 'string' || body[field].trim() === '') {
+      return `${field} is required.`;
+    }
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
+    return 'dueDate must use YYYY-MM-DD format.';
+  }
+
+  if (!['High', 'Medium', 'Low'].includes(body.priority)) {
+    return 'priority must be High, Medium, or Low.';
+  }
+
+  return '';
+}
 
 app.listen(port, '127.0.0.1', () => {
   console.log(`Operations Command Center server listening on http://127.0.0.1:${port}`);

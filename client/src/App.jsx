@@ -36,6 +36,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [error, setError] = useState('');
   const [selectedReview, setSelectedReview] = useState(null);
+  const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
 
   useEffect(() => {
     let ignoreResponse = false;
@@ -112,6 +113,16 @@ function App() {
             <button type="button">All Departments</button>
             <button type="button">All Owners</button>
             <button type="button">May 12, 2026</button>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => {
+                setSelectedReview(null);
+                setIsCreateDrawerOpen(true);
+              }}
+            >
+              + New Review
+            </button>
           </div>
         </header>
 
@@ -156,6 +167,17 @@ function App() {
           review={selectedReview}
           onApplyAction={handleReviewAction}
           onClose={() => setSelectedReview(null)}
+        />
+      )}
+
+      {isCreateDrawerOpen && (
+        <CreateReviewDrawer
+          onClose={() => setIsCreateDrawerOpen(false)}
+          onCreated={(nextDashboard) => {
+            setDashboard(nextDashboard);
+            setIsCreateDrawerOpen(false);
+            setError('');
+          }}
         />
       )}
     </div>
@@ -332,6 +354,158 @@ function DrawerSection({ title, children }) {
       <h3>{title}</h3>
       {children}
     </section>
+  );
+}
+
+function CreateReviewDrawer({ onClose, onCreated }) {
+  const [formData, setFormData] = useState({
+    residentLabel: '',
+    owner: '',
+    dueDate: '',
+    priority: 'Medium',
+    reviewType: 'Service Plan Review',
+    nextStep: '',
+    notes: '',
+  });
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function updateField(field, value) {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'nextStep'];
+    const missingField = requiredFields.find((field) => formData[field].trim() === '');
+
+    if (missingField) {
+      setFormError('Complete all required fields before creating the review.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError('');
+
+    try {
+      const response = await fetch('/api/work-items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Create request failed with ${response.status}`);
+      }
+
+      onCreated(result.dashboard);
+    } catch (requestError) {
+      setFormError(requestError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <aside className="detail-drawer" aria-label="Create new review">
+      <div className="drawer-header">
+        <div>
+          <span className="drawer-kicker">New work item</span>
+          <h2>Create Review</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close create review">
+          Close
+        </button>
+      </div>
+
+      <form className="drawer-body create-form" onSubmit={handleSubmit}>
+        {formError && (
+          <p className="form-message error" role="alert">
+            {formError}
+          </p>
+        )}
+
+        <label>
+          <span>Resident Label</span>
+          <input
+            value={formData.residentLabel}
+            onChange={(event) => updateField('residentLabel', event.target.value)}
+            placeholder="Resident Juliet"
+          />
+        </label>
+
+        <label>
+          <span>Owner</span>
+          <input
+            value={formData.owner}
+            onChange={(event) => updateField('owner', event.target.value)}
+            placeholder="Wellness Director"
+          />
+        </label>
+
+        <label>
+          <span>Due Date</span>
+          <input
+            type="date"
+            value={formData.dueDate}
+            onChange={(event) => updateField('dueDate', event.target.value)}
+          />
+        </label>
+
+        <label>
+          <span>Priority</span>
+          <select
+            value={formData.priority}
+            onChange={(event) => updateField('priority', event.target.value)}
+          >
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Review Type</span>
+          <input
+            value={formData.reviewType}
+            onChange={(event) => updateField('reviewType', event.target.value)}
+            placeholder="Service Plan Review"
+          />
+        </label>
+
+        <label>
+          <span>Next Step</span>
+          <textarea
+            value={formData.nextStep}
+            onChange={(event) => updateField('nextStep', event.target.value)}
+            placeholder="Confirm owner and prepare review packet."
+            rows="3"
+          />
+        </label>
+
+        <label>
+          <span>Optional Notes</span>
+          <textarea
+            value={formData.notes}
+            onChange={(event) => updateField('notes', event.target.value)}
+            placeholder="Synthetic operational note."
+            rows="3"
+          />
+        </label>
+
+        <button className="submit-action" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Creating...' : 'Create Review'}
+        </button>
+      </form>
+    </aside>
   );
 }
 

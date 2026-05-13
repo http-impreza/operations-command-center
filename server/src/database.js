@@ -191,6 +191,114 @@ export function updateWorkItemStatus(id, actionId) {
   };
 }
 
+export function createWorkItem(input) {
+  const now = new Date().toISOString();
+  const dueDate = normalizeText(input.dueDate);
+  const residentLabel = normalizeText(input.residentLabel);
+  const owner = normalizeText(input.owner);
+  const priority = normalizeText(input.priority);
+  const nextStep = normalizeText(input.nextStep);
+  const reviewType = normalizeText(input.reviewType) || 'Service Plan Review';
+  const blocker = normalizeText(input.blocker);
+  const notes = normalizeText(input.notes) || 'Synthetic locally created review item.';
+
+  const id = `review-${Date.now()}`;
+  const queueType = queueTypeForDueDate(dueDate);
+  const status = queueType === 'overdueReviews' ? 'Overdue' : 'Due Soon';
+  const history = [
+    {
+      id: `history-create-${id}`,
+      timestamp: now,
+      label: 'Work item created',
+    },
+  ];
+  const followUps = ['Review new item details and assign next operational follow-up.'];
+  const signatureStatus = 'Not started';
+  const activity = {
+    id: `activity-create-${id}`,
+    workItemId: id,
+    timestamp: now,
+    label: 'Work item created',
+  };
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(
+      `
+        INSERT INTO work_items (
+          id,
+          item_type,
+          queue_type,
+          resident_label,
+          review_type,
+          status,
+          owner,
+          due_date,
+          priority,
+          blocker,
+          next_step,
+          notes,
+          signature_status,
+          follow_ups,
+          history,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      id,
+      'review',
+      queueType,
+      residentLabel,
+      reviewType,
+      status,
+      owner,
+      dueDate,
+      priority,
+      blocker,
+      nextStep,
+      notes,
+      signatureStatus,
+      JSON.stringify(followUps),
+      JSON.stringify(history),
+      now,
+      now,
+    );
+    db.prepare(
+      `
+        INSERT INTO activity_events (id, work_item_id, timestamp, label, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+    ).run(activity.id, activity.workItemId, activity.timestamp, activity.label, now);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  return {
+    workItem: {
+      id,
+      queueKey: queueType,
+      residentLabel,
+      reviewType,
+      status,
+      owner,
+      dueDate,
+      priority,
+      blocker,
+      nextStep,
+      notes,
+      signatureStatus,
+      followUps,
+      history,
+    },
+    activity,
+    dashboard: getDashboardPayload(),
+  };
+}
+
 function seedDatabase() {
   const now = new Date().toISOString();
   const insertWorkItem = db.prepare(`
@@ -449,4 +557,14 @@ function activityLabelForAction(actionId) {
   }
 
   return 'marked blocked';
+}
+
+function normalizeText(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function queueTypeForDueDate(dueDate) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  return dueDate < today ? 'overdueReviews' : 'dueSoonReviews';
 }

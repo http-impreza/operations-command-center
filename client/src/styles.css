@@ -175,6 +175,16 @@ h1 {
   box-shadow: 0 1px 2px rgba(21, 30, 43, 0.04);
 }
 
+.filter-bar .primary-action {
+  border-color: #1c6f79;
+  background: #1c6f79;
+  color: #ffffff;
+}
+
+.filter-bar .primary-action:hover {
+  background: #155f68;
+}
+
 .status-message {
   max-width: 640px;
   padding: 16px;
@@ -633,6 +643,85 @@ time {
   margin: 0;
   color: #334155;
   font-size: 0.9rem;
+}
+
+.create-form {
+  align-content: start;
+}
+
+.create-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.create-form label span {
+  color: #526071;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.create-form input,
+.create-form select,
+.create-form textarea {
+  width: 100%;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #17202c;
+  font-size: 0.9rem;
+}
+
+.create-form input,
+.create-form select {
+  min-height: 38px;
+  padding: 0 11px;
+}
+
+.create-form textarea {
+  min-height: 84px;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+.create-form input:focus,
+.create-form select:focus,
+.create-form textarea:focus {
+  outline: 2px solid #1c6f79;
+  outline-offset: 2px;
+}
+
+.form-message {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.form-message.error {
+  border: 1px solid #f1b8b8;
+  background: #fff5f5;
+  color: #9b1c1c;
+}
+
+.submit-action {
+  min-height: 40px;
+  border: 1px solid #1c6f79;
+  border-radius: 8px;
+  background: #1c6f79;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.submit-action:hover {
+  background: #155f68;
+}
+
+.submit-action:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 @media (max-width: 1180px) {

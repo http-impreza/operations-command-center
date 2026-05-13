@@ -91,18 +91,23 @@ select {
   gap: 4px;
 }
 
-.sidebar-nav a {
+.sidebar-nav button {
   display: block;
+  width: 100%;
   padding: 10px 12px;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: #b8c3d0;
   font-size: 0.94rem;
   font-weight: 650;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.sidebar-nav a:hover,
-.sidebar-nav a.active {
+.sidebar-nav button:hover,
+.sidebar-nav button.active {
   background: #1d2a3a;
   color: #ffffff;
 }
@@ -266,6 +271,10 @@ h1 {
   border-left-color: #168163;
 }
 
+.summary-card.open {
+  border-left-color: #1c6f79;
+}
+
 .summary-card span {
   display: block;
   color: #5d6b7c;
@@ -286,6 +295,31 @@ h1 {
   margin: 0;
   color: #5e6b7a;
   font-size: 0.9rem;
+}
+
+.follow-up-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.compact-summary-grid {
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.summary-card.compact {
+  min-height: 88px;
+  padding: 13px 15px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
+}
+
+.summary-card.compact strong {
+  margin: 7px 0 5px;
+  font-size: 1.85rem;
+}
+
+.summary-card.compact p {
+  font-size: 0.78rem;
 }
 
 .operations-grid {
@@ -338,6 +372,83 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 760px;
+}
+
+.follow-up-panel {
+  overflow: hidden;
+}
+
+.follow-up-table-wrap {
+  overflow-x: hidden;
+}
+
+.follow-up-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.follow-up-table th,
+.follow-up-table td {
+  padding: 10px 12px;
+}
+
+.follow-up-table th:nth-child(1),
+.follow-up-table td:nth-child(1) {
+  width: 17%;
+}
+
+.follow-up-table th:nth-child(2),
+.follow-up-table td:nth-child(2) {
+  width: 20%;
+}
+
+.follow-up-table th:nth-child(3),
+.follow-up-table td:nth-child(3) {
+  width: 14%;
+}
+
+.follow-up-table th:nth-child(4),
+.follow-up-table td:nth-child(4) {
+  width: 17%;
+}
+
+.follow-up-table th:nth-child(5),
+.follow-up-table td:nth-child(5) {
+  width: 11%;
+}
+
+.follow-up-table th:nth-child(6),
+.follow-up-table td:nth-child(6) {
+  width: 12%;
+}
+
+.follow-up-table th:nth-child(7),
+.follow-up-table td:nth-child(7) {
+  width: 9%;
+}
+
+.follow-up-table th,
+.follow-up-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 18px;
+  border-bottom: 1px solid #edf1f5;
+  color: #66758a;
+  font-weight: 700;
+}
+
+.placeholder-panel {
+  padding: 28px;
+}
+
+.placeholder-panel h2 {
+  color: #263241;
+  font-size: 1rem;
 }
 
 th,

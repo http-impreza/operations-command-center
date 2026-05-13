@@ -23,6 +23,16 @@ const departments = [
   'Administration',
 ];
 const defaultAsOfDate = '2026-05-12';
+const followUpStatuses = [
+  'All Open',
+  'Overdue',
+  'Due Soon',
+  'Blocked',
+  'Follow-Up Needed',
+  'Waiting on Signature',
+  'Waiting on Provider',
+  'Waiting on Pharmacy',
+];
 const blockingStatuses = [
   'Blocked',
   'Follow-Up Needed',
@@ -139,8 +149,40 @@ export function getDashboardPayload(filters = {}) {
   };
 }
 
+export function getFollowUpPayload(filters = {}) {
+  const normalizedFilters = normalizeFilters(filters);
+  const statusFilter = normalizeStatusFilter(filters.status);
+  const priorityFilter = normalizeFilterValue(filters.priority);
+  const items = db
+    .prepare(
+      `
+        SELECT * FROM work_items
+        ORDER BY due_date ASC, updated_at DESC, resident_label ASC
+      `,
+    )
+    .all()
+    .map(mapReviewRow)
+    .filter((item) => item.status !== 'Completed')
+    .filter((item) => matchesFilters(item, normalizedFilters))
+    .filter((item) => !priorityFilter || item.priority === priorityFilter)
+    .map((item) => ({
+      ...item,
+      queueStatus: classifyFollowUpStatus(item, normalizedFilters.asOfDate),
+    }))
+    .filter((item) => matchesStatusFilter(item, statusFilter));
+
+  return {
+    items,
+    filterOptions: {
+      ...getFilterOptions(),
+      statuses: followUpStatuses,
+      priorities: ['High', 'Medium', 'Low'],
+    },
+  };
+}
+
 export function updateWorkItemStatus(id, actionId, filters = {}) {
-  const row = db.prepare('SELECT * FROM work_items WHERE id = ? AND item_type = ?').get(id, 'review');
+  const row = db.prepare('SELECT * FROM work_items WHERE id = ?').get(id);
 
   if (!row) {
     return null;
@@ -545,6 +587,12 @@ function normalizeFilters(filters) {
   };
 }
 
+function normalizeStatusFilter(value) {
+  const normalized = normalizeFilterValue(value);
+
+  return followUpStatuses.includes(normalized) ? normalized : 'All Open';
+}
+
 function matchesFilters(item, filters) {
   if (filters.department && item.department !== filters.department) {
     return false;
@@ -559,6 +607,34 @@ function matchesFilters(item, filters) {
 
 function isOpenReview(review) {
   return review.status !== 'Completed' && !isBlockedReview(review);
+}
+
+function classifyFollowUpStatus(item, asOfDate) {
+  if (isBlockedReview(item)) {
+    return item.status;
+  }
+
+  if (item.dueDate < asOfDate) {
+    return 'Overdue';
+  }
+
+  if (item.dueDate <= addDays(asOfDate, 7)) {
+    return 'Due Soon';
+  }
+
+  return 'Open';
+}
+
+function matchesStatusFilter(item, statusFilter) {
+  if (statusFilter === 'All Open') {
+    return true;
+  }
+
+  if (statusFilter === 'Blocked') {
+    return isBlockedReview(item);
+  }
+
+  return item.queueStatus === statusFilter || item.status === statusFilter;
 }
 
 function isBlockedReview(review) {

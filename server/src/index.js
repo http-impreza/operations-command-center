@@ -2,6 +2,7 @@ import express from 'express';
 import {
   createWorkItem,
   getDashboardPayload,
+  getFollowUpPayload,
   initializeDatabase,
   updateWorkItemStatus,
 } from './database.js';
@@ -22,6 +23,10 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/dashboard', (req, res) => {
   res.json(getDashboardPayload(getDashboardFilters(req.query)));
+});
+
+app.get('/api/follow-ups', (req, res) => {
+  res.json(getFollowUpPayload(getFollowUpFilters(req.query)));
 });
 
 app.post('/api/work-items', (req, res) => {
@@ -80,6 +85,16 @@ function getDashboardFilters(query) {
   return {
     department: query.department,
     owner: query.owner,
+    asOfDate: query.asOfDate,
+  };
+}
+
+function getFollowUpFilters(query) {
+  return {
+    department: query.department,
+    owner: query.owner,
+    status: query.status,
+    priority: query.priority,
     asOfDate: query.asOfDate,
   };
 }

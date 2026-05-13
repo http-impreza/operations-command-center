@@ -20,8 +20,8 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.get('/api/dashboard', (_req, res) => {
-  res.json(getDashboardPayload());
+app.get('/api/dashboard', (req, res) => {
+  res.json(getDashboardPayload(getDashboardFilters(req.query)));
 });
 
 app.post('/api/work-items', (req, res) => {
@@ -33,7 +33,7 @@ app.post('/api/work-items', (req, res) => {
     });
   }
 
-  return res.status(201).json(createWorkItem(req.body));
+  return res.status(201).json(createWorkItem(req.body, getDashboardFilters(req.query)));
 });
 
 app.patch('/api/work-items/:id/status', (req, res) => {
@@ -45,7 +45,7 @@ app.patch('/api/work-items/:id/status', (req, res) => {
     });
   }
 
-  const result = updateWorkItemStatus(req.params.id, actionId);
+  const result = updateWorkItemStatus(req.params.id, actionId, getDashboardFilters(req.query));
 
   if (!result) {
     return res.status(404).json({
@@ -74,6 +74,14 @@ function validateCreateWorkItem(body) {
   }
 
   return '';
+}
+
+function getDashboardFilters(query) {
+  return {
+    department: query.department,
+    owner: query.owner,
+    asOfDate: query.asOfDate,
+  };
 }
 
 app.listen(port, '127.0.0.1', () => {

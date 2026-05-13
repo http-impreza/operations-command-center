@@ -29,6 +29,7 @@ export const dashboardData = {
     {
       id: 'review-alpha',
       residentLabel: 'Resident Alpha',
+      department: 'Nursing',
       owner: 'Wellness Director',
       dueDate: '2026-05-06',
       priority: 'High',
@@ -59,7 +60,8 @@ export const dashboardData = {
     {
       id: 'review-bravo',
       residentLabel: 'Resident Bravo',
-      owner: 'RN Reviewer',
+      department: 'Nursing',
+      owner: 'LPN',
       dueDate: '2026-05-08',
       priority: 'High',
       status: 'Overdue',
@@ -89,7 +91,8 @@ export const dashboardData = {
     {
       id: 'review-charlie',
       residentLabel: 'Resident Charlie',
-      owner: 'Admin Coordinator',
+      department: 'Administration',
+      owner: 'Medical Records',
       dueDate: '2026-05-10',
       priority: 'Medium',
       status: 'Overdue',
@@ -121,7 +124,8 @@ export const dashboardData = {
     {
       id: 'review-delta',
       residentLabel: 'Resident Delta',
-      owner: 'DON',
+      department: 'Nursing',
+      owner: 'Resident Care Coordinator',
       dueDate: '2026-05-13',
       priority: 'High',
       status: 'Due Soon',
@@ -146,7 +150,8 @@ export const dashboardData = {
     {
       id: 'review-echo',
       residentLabel: 'Resident Echo',
-      owner: 'Med Tech Lead',
+      department: 'Nursing',
+      owner: 'Med Tech',
       dueDate: '2026-05-15',
       priority: 'Medium',
       status: 'Due Soon',
@@ -171,7 +176,8 @@ export const dashboardData = {
     {
       id: 'review-foxtrot',
       residentLabel: 'Resident Foxtrot',
-      owner: 'Wellness Director',
+      department: 'Administration',
+      owner: 'Executive Director',
       dueDate: '2026-05-17',
       priority: 'Medium',
       status: 'Due Soon',
@@ -196,7 +202,8 @@ export const dashboardData = {
     {
       id: 'review-golf',
       residentLabel: 'Resident Golf',
-      owner: 'RN Reviewer',
+      department: 'Activities',
+      owner: 'Activities Director',
       dueDate: '2026-05-18',
       priority: 'Low',
       status: 'Due Soon',
@@ -223,16 +230,18 @@ export const dashboardData = {
     {
       id: 'blocked-hotel',
       residentLabel: 'Resident Hotel',
+      department: 'Nursing',
       blockerType: 'Waiting on Provider',
-      owner: 'DON',
+      owner: 'Wellness Director',
       blockedSince: '2026-05-07',
       nextStep: 'Place follow-up call and document response.',
     },
     {
       id: 'blocked-india',
       residentLabel: 'Resident India',
+      department: 'Business Office',
       blockerType: 'Waiting on Pharmacy',
-      owner: 'Med Tech Lead',
+      owner: 'Business Office Manager',
       blockedSince: '2026-05-09',
       nextStep: 'Request clarification status update.',
     },

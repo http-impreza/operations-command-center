@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 
 const dashboardUrl = '/api/dashboard';
+const defaultAsOfDate = '2026-05-12';
+const fallbackDepartments = [
+  'Nursing',
+  'Business Office',
+  'Maintenance',
+  'Kitchen',
+  'Housekeeping',
+  'Activities',
+  'Administration',
+];
 
 const navigationItems = [
   'Dashboard',
@@ -37,13 +47,18 @@ function App() {
   const [error, setError] = useState('');
   const [selectedReview, setSelectedReview] = useState(null);
   const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
+  const [filters, setFilters] = useState({
+    department: '',
+    owner: '',
+    asOfDate: defaultAsOfDate,
+  });
 
   useEffect(() => {
     let ignoreResponse = false;
 
     async function loadDashboard() {
       try {
-        const response = await fetch(dashboardUrl);
+        const response = await fetch(buildDashboardUrl(filters));
 
         if (!response.ok) {
           throw new Error(`Dashboard request failed with ${response.status}`);
@@ -67,7 +82,12 @@ function App() {
     return () => {
       ignoreResponse = true;
     };
-  }, []);
+  }, [filters]);
+
+  const filterOptions = dashboard?.filterOptions ?? {
+    departments: fallbackDepartments,
+    owners: [],
+  };
 
   async function handleReviewAction(actionId) {
     if (!selectedReview) {
@@ -75,13 +95,16 @@ function App() {
     }
 
     try {
-      const response = await fetch(`/api/work-items/${selectedReview.id}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        `/api/work-items/${selectedReview.id}/status${buildQueryString(filters)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ actionId }),
         },
-        body: JSON.stringify({ actionId }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`Status update failed with ${response.status}`);
@@ -110,9 +133,48 @@ function App() {
           </div>
 
           <div className="filter-bar" aria-label="Dashboard filters">
-            <button type="button">All Departments</button>
-            <button type="button">All Owners</button>
-            <button type="button">May 12, 2026</button>
+            <label>
+              <span>Department</span>
+              <select
+                value={filters.department}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, department: event.target.value }))
+                }
+              >
+                <option value="">All Departments</option>
+                {filterOptions.departments.map((department) => (
+                  <option key={department} value={department}>
+                    {department}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Owner</span>
+              <select
+                value={filters.owner}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, owner: event.target.value }))
+                }
+              >
+                <option value="">All Owners</option>
+                {filterOptions.owners.map((owner) => (
+                  <option key={owner} value={owner}>
+                    {owner}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Operational Date</span>
+              <input
+                type="date"
+                value={filters.asOfDate}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, asOfDate: event.target.value }))
+                }
+              />
+            </label>
             <button
               className="primary-action"
               type="button"
@@ -172,6 +234,8 @@ function App() {
 
       {isCreateDrawerOpen && (
         <CreateReviewDrawer
+          filters={filters}
+          ownerOptions={filterOptions.owners}
           onClose={() => setIsCreateDrawerOpen(false)}
           onCreated={(nextDashboard) => {
             setDashboard(nextDashboard);
@@ -357,10 +421,14 @@ function DrawerSection({ title, children }) {
   );
 }
 
-function CreateReviewDrawer({ onClose, onCreated }) {
+function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
+  const defaultOwner = ownerOptions.includes('Wellness Director')
+    ? 'Wellness Director'
+    : ownerOptions[0] || '';
   const [formData, setFormData] = useState({
     residentLabel: '',
-    owner: '',
+    department: filters.department || 'Nursing',
+    owner: defaultOwner,
     dueDate: '',
     priority: 'Medium',
     reviewType: 'Service Plan Review',
@@ -392,7 +460,7 @@ function CreateReviewDrawer({ onClose, onCreated }) {
     setFormError('');
 
     try {
-      const response = await fetch('/api/work-items', {
+      const response = await fetch(`/api/work-items${buildQueryString(filters)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -443,12 +511,27 @@ function CreateReviewDrawer({ onClose, onCreated }) {
         </label>
 
         <label>
+          <span>Department</span>
+          <select
+            value={formData.department}
+            onChange={(event) => updateField('department', event.target.value)}
+          >
+            {fallbackDepartments.map((department) => (
+              <option key={department}>{department}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
           <span>Owner</span>
-          <input
+          <select
             value={formData.owner}
             onChange={(event) => updateField('owner', event.target.value)}
-            placeholder="Wellness Director"
-          />
+          >
+            {ownerOptions.map((owner) => (
+              <option key={owner}>{owner}</option>
+            ))}
+          </select>
         </label>
 
         <label>
@@ -562,6 +645,30 @@ function PanelHeader({ title, count }) {
 
 function StatusPill({ label, tone }) {
   return <span className={`status-pill ${tone}`}>{label}</span>;
+}
+
+function buildDashboardUrl(filters) {
+  return `${dashboardUrl}${buildQueryString(filters)}`;
+}
+
+function buildQueryString(filters) {
+  const params = new URLSearchParams();
+
+  if (filters.department) {
+    params.set('department', filters.department);
+  }
+
+  if (filters.owner) {
+    params.set('owner', filters.owner);
+  }
+
+  if (filters.asOfDate) {
+    params.set('asOfDate', filters.asOfDate);
+  }
+
+  const queryString = params.toString();
+
+  return queryString ? `?${queryString}` : '';
 }
 
 function statusTone(status) {

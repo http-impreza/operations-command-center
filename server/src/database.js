@@ -13,6 +13,23 @@ export const databasePath = resolve(
 
 const completedBaseline =
   dashboardData.summaryCards.find((card) => card.id === 'completed')?.value ?? 0;
+const departments = [
+  'Nursing',
+  'Business Office',
+  'Maintenance',
+  'Kitchen',
+  'Housekeeping',
+  'Activities',
+  'Administration',
+];
+const defaultAsOfDate = '2026-05-12';
+const blockingStatuses = [
+  'Blocked',
+  'Follow-Up Needed',
+  'Waiting on Signature',
+  'Waiting on Provider',
+  'Waiting on Pharmacy',
+];
 
 mkdirSync(dirname(databasePath), { recursive: true });
 
@@ -24,6 +41,7 @@ export function initializeDatabase() {
       id TEXT PRIMARY KEY,
       item_type TEXT NOT NULL,
       queue_type TEXT,
+      department TEXT NOT NULL DEFAULT 'Nursing',
       resident_label TEXT NOT NULL,
       review_type TEXT,
       status TEXT NOT NULL,
@@ -49,6 +67,8 @@ export function initializeDatabase() {
     );
   `);
 
+  migrateDatabase();
+
   const existing = db.prepare('SELECT COUNT(*) AS count FROM work_items').get();
 
   if (existing.count === 0) {
@@ -61,7 +81,8 @@ export function resetDatabase() {
   rmSync(databasePath, { force: true });
 }
 
-export function getDashboardPayload() {
+export function getDashboardPayload(filters = {}) {
+  const normalizedFilters = normalizeFilters(filters);
   const reviews = db
     .prepare(
       `
@@ -84,42 +105,41 @@ export function getDashboardPayload() {
     .all()
     .map(mapBlockedRow);
 
-  const recentActivity = db
-    .prepare(
-      `
-        SELECT id, timestamp, label
-        FROM activity_events
-        ORDER BY timestamp DESC
-        LIMIT 12
-      `,
-    )
-    .all();
-
-  const overdueReviews = reviews.filter(
-    (review) => review.queueKey === 'overdueReviews' && isOpenReview(review),
+  const filteredReviews = reviews.filter((review) => matchesFilters(review, normalizedFilters));
+  const filteredBaseBlockedItems = baseBlockedItems.filter((item) =>
+    matchesFilters(item, normalizedFilters),
   );
-  const dueSoonReviews = reviews.filter(
-    (review) => review.queueKey === 'dueSoonReviews' && isOpenReview(review),
+  const overdueReviews = filteredReviews.filter(
+    (review) => isOpenReview(review) && review.dueDate < normalizedFilters.asOfDate,
   );
-  const completedCount = reviews.filter((review) => review.status === 'Completed').length;
-  const blockedReviewItems = reviews.filter(isBlockedReview).map(mapReviewToBlockedItem);
-  const blockedItems = [...blockedReviewItems, ...baseBlockedItems];
+  const dueSoonReviews = filteredReviews.filter(
+    (review) =>
+      isOpenReview(review) &&
+      review.dueDate >= normalizedFilters.asOfDate &&
+      review.dueDate <= addDays(normalizedFilters.asOfDate, 7),
+  );
+  const completedCount = filteredReviews.filter((review) => review.status === 'Completed').length;
+  const blockedItems = [
+    ...filteredReviews.filter(isBlockedReview).map(mapReviewToBlockedItem),
+    ...filteredBaseBlockedItems,
+  ];
 
   return {
     summaryCards: buildSummaryCards({
       overdue: overdueReviews.length,
       blocked: blockedItems.length,
       dueSoon: dueSoonReviews.length,
-      completed: completedBaseline + completedCount,
+      completed: completedBaselineForFilters(normalizedFilters) + completedCount,
     }),
     overdueReviews,
     dueSoonReviews,
     blockedItems,
-    recentActivity,
+    recentActivity: getRecentActivity(normalizedFilters),
+    filterOptions: getFilterOptions(),
   };
 }
 
-export function updateWorkItemStatus(id, actionId) {
+export function updateWorkItemStatus(id, actionId, filters = {}) {
   const row = db.prepare('SELECT * FROM work_items WHERE id = ? AND item_type = ?').get(id, 'review');
 
   if (!row) {
@@ -172,12 +192,7 @@ export function updateWorkItemStatus(id, actionId) {
       timestamp,
       id,
     );
-    db.prepare(
-      `
-        INSERT INTO activity_events (id, work_item_id, timestamp, label, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `,
-    ).run(activity.id, activity.workItemId, activity.timestamp, activity.label, timestamp);
+    insertActivity(activity);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -187,13 +202,14 @@ export function updateWorkItemStatus(id, actionId) {
   return {
     workItem: updatedReview,
     activity,
-    dashboard: getDashboardPayload(),
+    dashboard: getDashboardPayload(filters),
   };
 }
 
-export function createWorkItem(input) {
+export function createWorkItem(input, filters = {}) {
   const now = new Date().toISOString();
   const dueDate = normalizeText(input.dueDate);
+  const department = normalizeDepartment(input.department);
   const residentLabel = normalizeText(input.residentLabel);
   const owner = normalizeText(input.owner);
   const priority = normalizeText(input.priority);
@@ -203,8 +219,8 @@ export function createWorkItem(input) {
   const notes = normalizeText(input.notes) || 'Synthetic locally created review item.';
 
   const id = `review-${Date.now()}`;
-  const queueType = queueTypeForDueDate(dueDate);
-  const status = queueType === 'overdueReviews' ? 'Overdue' : 'Due Soon';
+  const status = dueDate < defaultAsOfDate ? 'Overdue' : 'Due Soon';
+  const queueType = status === 'Overdue' ? 'overdueReviews' : 'dueSoonReviews';
   const history = [
     {
       id: `history-create-${id}`,
@@ -229,6 +245,7 @@ export function createWorkItem(input) {
           id,
           item_type,
           queue_type,
+          department,
           resident_label,
           review_type,
           status,
@@ -244,12 +261,13 @@ export function createWorkItem(input) {
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     ).run(
       id,
       'review',
       queueType,
+      department,
       residentLabel,
       reviewType,
       status,
@@ -265,12 +283,7 @@ export function createWorkItem(input) {
       now,
       now,
     );
-    db.prepare(
-      `
-        INSERT INTO activity_events (id, work_item_id, timestamp, label, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `,
-    ).run(activity.id, activity.workItemId, activity.timestamp, activity.label, now);
+    insertActivity(activity);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -281,6 +294,7 @@ export function createWorkItem(input) {
     workItem: {
       id,
       queueKey: queueType,
+      department,
       residentLabel,
       reviewType,
       status,
@@ -295,7 +309,7 @@ export function createWorkItem(input) {
       history,
     },
     activity,
-    dashboard: getDashboardPayload(),
+    dashboard: getDashboardPayload(filters),
   };
 }
 
@@ -306,6 +320,7 @@ function seedDatabase() {
       id,
       item_type,
       queue_type,
+      department,
       resident_label,
       review_type,
       status,
@@ -321,11 +336,7 @@ function seedDatabase() {
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertActivity = db.prepare(`
-    INSERT INTO activity_events (id, work_item_id, timestamp, label, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec('BEGIN');
@@ -343,6 +354,7 @@ function seedDatabase() {
         item.id,
         'blocked',
         null,
+        item.department,
         item.residentLabel,
         'Blocked Item',
         'Blocked',
@@ -361,7 +373,12 @@ function seedDatabase() {
     }
 
     for (const activity of dashboardData.recentActivity) {
-      insertActivity.run(activity.id, null, activity.timestamp, activity.label, now);
+      insertActivity({
+        id: activity.id,
+        workItemId: null,
+        timestamp: activity.timestamp,
+        label: activity.label,
+      });
     }
 
     db.exec('COMMIT');
@@ -376,6 +393,7 @@ function insertReview(statement, review, queueType, now) {
     review.id,
     'review',
     queueType,
+    review.department,
     review.residentLabel,
     review.reviewType,
     review.status,
@@ -393,10 +411,26 @@ function insertReview(statement, review, queueType, now) {
   );
 }
 
+function insertActivity(activity) {
+  db.prepare(
+    `
+      INSERT INTO activity_events (id, work_item_id, timestamp, label, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+  ).run(
+    activity.id,
+    activity.workItemId,
+    activity.timestamp,
+    activity.label,
+    new Date().toISOString(),
+  );
+}
+
 function mapReviewRow(row) {
   return {
     id: row.id,
     queueKey: row.queue_type,
+    department: row.department,
     residentLabel: row.resident_label,
     reviewType: row.review_type,
     status: row.status,
@@ -415,6 +449,7 @@ function mapReviewRow(row) {
 function mapBlockedRow(row) {
   return {
     id: row.id,
+    department: row.department,
     residentLabel: row.resident_label,
     blockerType: row.blocker,
     owner: row.owner,
@@ -426,6 +461,7 @@ function mapBlockedRow(row) {
 function mapReviewToBlockedItem(review) {
   return {
     id: review.id,
+    department: review.department,
     residentLabel: review.residentLabel,
     blockerType: blockerTypeForReview(review),
     owner: review.owner,
@@ -434,18 +470,99 @@ function mapReviewToBlockedItem(review) {
   };
 }
 
+function migrateDatabase() {
+  const columns = db.prepare('PRAGMA table_info(work_items)').all();
+  const hasDepartment = columns.some((column) => column.name === 'department');
+
+  if (!hasDepartment) {
+    db.exec("ALTER TABLE work_items ADD COLUMN department TEXT NOT NULL DEFAULT 'Nursing'");
+    db.exec("UPDATE work_items SET department = 'Nursing' WHERE department IS NULL OR department = ''");
+  }
+}
+
+function getRecentActivity(filters) {
+  if (!filters.department && !filters.owner) {
+    return db
+      .prepare(
+        `
+          SELECT id, timestamp, label
+          FROM activity_events
+          ORDER BY timestamp DESC
+          LIMIT 12
+        `,
+      )
+      .all();
+  }
+
+  return db
+    .prepare(
+      `
+        SELECT activity_events.id, activity_events.timestamp, activity_events.label
+        FROM activity_events
+        JOIN work_items ON work_items.id = activity_events.work_item_id
+        WHERE (? = '' OR work_items.department = ?)
+          AND (? = '' OR work_items.owner = ?)
+        ORDER BY activity_events.timestamp DESC
+        LIMIT 12
+      `,
+    )
+    .all(filters.department, filters.department, filters.owner, filters.owner);
+}
+
+function getFilterOptions() {
+  const owners = db
+    .prepare(
+      `
+        SELECT DISTINCT owner
+        FROM work_items
+        ORDER BY owner ASC
+      `,
+    )
+    .all()
+    .map((row) => row.owner);
+  const storedDepartments = db
+    .prepare(
+      `
+        SELECT DISTINCT department
+        FROM work_items
+        ORDER BY department ASC
+      `,
+    )
+    .all()
+    .map((row) => row.department);
+
+  return {
+    departments: [...new Set([...departments, ...storedDepartments])],
+    owners,
+  };
+}
+
+function normalizeFilters(filters) {
+  return {
+    department: normalizeFilterValue(filters.department),
+    owner: normalizeFilterValue(filters.owner),
+    asOfDate: isDateString(filters.asOfDate) ? filters.asOfDate : defaultAsOfDate,
+  };
+}
+
+function matchesFilters(item, filters) {
+  if (filters.department && item.department !== filters.department) {
+    return false;
+  }
+
+  if (filters.owner && item.owner !== filters.owner) {
+    return false;
+  }
+
+  return true;
+}
+
 function isOpenReview(review) {
   return review.status !== 'Completed' && !isBlockedReview(review);
 }
 
 function isBlockedReview(review) {
-  return [
-    'Blocked',
-    'Follow-Up Needed',
-    'Waiting on Signature',
-    'Waiting on Provider',
-    'Waiting on Pharmacy',
-  ].includes(review.status);
+  return blockingStatuses.includes(review.status);
 }
 
 function blockerTypeForReview(review) {
@@ -505,6 +622,10 @@ function buildSummaryCards(values) {
   ];
 }
 
+function completedBaselineForFilters(filters) {
+  return filters.department || filters.owner ? 0 : completedBaseline;
+}
+
 function reviewUpdateForAction(actionId) {
   if (actionId === 'complete') {
     return {
@@ -559,12 +680,33 @@ function activityLabelForAction(actionId) {
   return 'marked blocked';
 }
 
+function addDays(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function isDateString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function queueTypeForDueDate(dueDate) {
-  const today = new Date().toISOString().slice(0, 10);
+function normalizeFilterValue(value) {
+  const normalized = normalizeText(value);
 
-  return dueDate < today ? 'overdueReviews' : 'dueSoonReviews';
+  if (normalized === '' || normalized.startsWith('All ')) {
+    return '';
+  }
+
+  return normalized;
+}
+
+function normalizeDepartment(value) {
+  const normalized = normalizeText(value);
+
+  return departments.includes(normalized) ? normalized : 'Nursing';
 }

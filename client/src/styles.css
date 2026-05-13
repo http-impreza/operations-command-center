@@ -163,7 +163,40 @@ h1 {
   gap: 10px;
 }
 
+.filter-bar label {
+  display: grid;
+  gap: 4px;
+}
+
+.filter-bar label span {
+  color: #5a6878;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.filter-bar select,
+.filter-bar input {
+  min-height: 38px;
+  max-width: 180px;
+  padding: 0 12px;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #263241;
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(21, 30, 43, 0.04);
+}
+
+.filter-bar select:focus,
+.filter-bar input:focus {
+  outline: 2px solid #1c6f79;
+  outline-offset: 2px;
+}
+
 .filter-bar button {
+  align-self: end;
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid #d8e0e8;

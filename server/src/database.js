@@ -33,6 +33,13 @@ const followUpStatuses = [
   'Waiting on Provider',
   'Waiting on Pharmacy',
 ];
+const blockerTypes = [
+  'Blocked',
+  'Follow-Up Needed',
+  'Waiting on Signature',
+  'Waiting on Provider',
+  'Waiting on Pharmacy',
+];
 const blockingStatuses = [
   'Blocked',
   'Follow-Up Needed',
@@ -181,6 +188,48 @@ export function getFollowUpPayload(filters = {}) {
   };
 }
 
+export function getBlockedWorkflowPayload(filters = {}) {
+  const normalizedFilters = normalizeBlockedWorkflowFilters(filters);
+  const items = db
+    .prepare(
+      `
+        SELECT * FROM work_items
+        ORDER BY due_date ASC, updated_at DESC, resident_label ASC
+      `,
+    )
+    .all()
+    .map(mapReviewRow)
+    .filter((item) => item.status !== 'Completed')
+    .filter((item) => matchesFilters(item, normalizedFilters))
+    .map((item) => {
+      const blockerType = blockerTypeForReview(item);
+      const blockedSince = item.dueDate;
+      const daysBlocked = daysBetween(blockedSince, normalizedFilters.asOfDate);
+
+      return {
+        ...item,
+        blockerType,
+        blockedSince,
+        daysBlocked,
+        agingLevel: agingLevelForDays(daysBlocked),
+      };
+    })
+    .filter(isBlockedWorkflowItem)
+    .filter(
+      (item) => !normalizedFilters.blockerType || item.blockerType === normalizedFilters.blockerType,
+    );
+  const groupedItems = groupBlockedItems(items);
+
+  return {
+    summaryCards: buildBlockedWorkflowSummaryCards(items),
+    groupedItems,
+    filterOptions: {
+      ...getFilterOptions(),
+      blockerTypes,
+    },
+  };
+}
+
 export function updateWorkItemStatus(id, actionId, filters = {}) {
   const row = db.prepare('SELECT * FROM work_items WHERE id = ?').get(id);
 
@@ -245,6 +294,77 @@ export function updateWorkItemStatus(id, actionId, filters = {}) {
     workItem: updatedReview,
     activity,
     dashboard: getDashboardPayload(filters),
+  };
+}
+
+export function updateBlockedWorkflowAction(id, action, input = {}, filters = {}) {
+  const row = db.prepare('SELECT * FROM work_items WHERE id = ?').get(id);
+
+  if (!row) {
+    return null;
+  }
+
+  const review = mapReviewRow(row);
+  const timestamp = new Date().toISOString();
+  const update = blockedWorkflowUpdateForAction(action, input, review);
+
+  if (!update) {
+    return null;
+  }
+
+  const updatedReview = {
+    ...review,
+    ...update.fields,
+    followUps: update.followUps ?? review.followUps,
+    history: [
+      {
+        id: `history-${action}-${id}-${Date.now()}`,
+        timestamp,
+        label: update.historyLabel,
+      },
+      ...review.history,
+    ],
+  };
+  const activity = {
+    id: `activity-${action}-${id}-${Date.now()}`,
+    workItemId: id,
+    timestamp,
+    label: `${review.residentLabel} ${update.historyLabel}`,
+  };
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(
+      `
+        UPDATE work_items
+        SET owner = ?,
+            priority = ?,
+            next_step = ?,
+            follow_ups = ?,
+            history = ?,
+            updated_at = ?
+        WHERE id = ?
+      `,
+    ).run(
+      updatedReview.owner,
+      updatedReview.priority,
+      updatedReview.nextStep,
+      JSON.stringify(updatedReview.followUps),
+      JSON.stringify(updatedReview.history),
+      timestamp,
+      id,
+    );
+    insertActivity(activity);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  return {
+    workItem: updatedReview,
+    activity,
+    blockedWorkflow: getBlockedWorkflowPayload(filters),
   };
 }
 
@@ -579,12 +699,25 @@ function getFilterOptions() {
   };
 }
 
+function normalizeBlockedWorkflowFilters(filters) {
+  return {
+    ...normalizeFilters(filters),
+    blockerType: normalizeBlockerTypeFilter(filters.blockerType),
+  };
+}
+
 function normalizeFilters(filters) {
   return {
     department: normalizeFilterValue(filters.department),
     owner: normalizeFilterValue(filters.owner),
     asOfDate: isDateString(filters.asOfDate) ? filters.asOfDate : defaultAsOfDate,
   };
+}
+
+function normalizeBlockerTypeFilter(value) {
+  const normalized = normalizeFilterValue(value);
+
+  return blockerTypes.includes(normalized) ? normalized : '';
 }
 
 function normalizeStatusFilter(value) {
@@ -641,6 +774,81 @@ function isBlockedReview(review) {
   return blockingStatuses.includes(review.status);
 }
 
+function isBlockedWorkflowItem(item) {
+  return isBlockedReview(item) || item.blockerType !== 'Blocked';
+}
+
+function groupBlockedItems(items) {
+  return blockerTypes
+    .map((blockerType) => ({
+      blockerType,
+      items: items.filter((item) => item.blockerType === blockerType),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+function buildBlockedWorkflowSummaryCards(items) {
+  const providerCount = items.filter((item) => item.blockerType === 'Waiting on Provider').length;
+  const pharmacyCount = items.filter((item) => item.blockerType === 'Waiting on Pharmacy').length;
+  const signatureCount = items.filter((item) => item.blockerType === 'Waiting on Signature').length;
+
+  return [
+    {
+      id: 'blocked',
+      label: 'Total Blocked',
+      value: items.length,
+      detail: 'Open blocked work',
+    },
+    {
+      id: 'provider',
+      label: 'Waiting on Provider',
+      value: providerCount,
+      detail: 'Provider response needed',
+    },
+    {
+      id: 'pharmacy',
+      label: 'Waiting on Pharmacy',
+      value: pharmacyCount,
+      detail: 'Pharmacy follow-up needed',
+    },
+    {
+      id: 'signature',
+      label: 'Waiting on Signature',
+      value: signatureCount,
+      detail: 'Signature path blocked',
+    },
+    {
+      id: 'other',
+      label: 'Other Blockers',
+      value: items.length - providerCount - pharmacyCount - signatureCount,
+      detail: 'Needs owner resolution',
+    },
+  ];
+}
+
+function daysBetween(startDate, endDate) {
+  if (!isDateString(startDate) || !isDateString(endDate)) {
+    return 0;
+  }
+
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+
+  return Math.max(0, Math.floor((end - start) / 86400000));
+}
+
+function agingLevelForDays(days) {
+  if (days > 7) {
+    return 'escalated';
+  }
+
+  if (days >= 3) {
+    return 'warning';
+  }
+
+  return 'normal';
+}
+
 function blockerTypeForReview(review) {
   if (review.status === 'Follow-Up Needed') {
     return 'Follow-Up Needed';
@@ -658,7 +866,25 @@ function blockerTypeForReview(review) {
     return 'Waiting on Pharmacy';
   }
 
-  return review.blocker || 'Blocked';
+  const blocker = review.blocker.toLowerCase();
+
+  if (blocker.includes('provider')) {
+    return 'Waiting on Provider';
+  }
+
+  if (blocker.includes('signature')) {
+    return 'Waiting on Signature';
+  }
+
+  if (blocker.includes('pharmacy')) {
+    return 'Waiting on Pharmacy';
+  }
+
+  if (blocker.includes('follow-up') || blocker.includes('follow up')) {
+    return 'Follow-Up Needed';
+  }
+
+  return blockerTypes.includes(review.blocker) ? review.blocker : 'Blocked';
 }
 
 function parseJson(value, fallback) {
@@ -738,6 +964,50 @@ function reviewUpdateForAction(actionId) {
     blocker: 'Operational blocker needs resolution',
     nextStep: 'Identify blocker owner and document resolution path.',
   };
+}
+
+function blockedWorkflowUpdateForAction(action, input, review) {
+  if (action === 'reassign') {
+    const nextOwner = normalizeText(input.owner);
+
+    if (!nextOwner || nextOwner === review.owner) {
+      return null;
+    }
+
+    return {
+      fields: {
+        owner: nextOwner,
+        nextStep: 'Confirm revised owner and unblock path.',
+      },
+      historyLabel: `Reassigned from ${review.owner} to ${nextOwner}.`,
+    };
+  }
+
+  if (action === 'add-note') {
+    const note = normalizeText(input.note);
+
+    if (!note) {
+      return null;
+    }
+
+    return {
+      fields: {},
+      followUps: [note, ...review.followUps],
+      historyLabel: `Added follow-up note: ${note}`,
+    };
+  }
+
+  if (action === 'escalate') {
+    return {
+      fields: {
+        priority: 'High',
+        nextStep: 'Escalate blocker owner and confirm resolution path.',
+      },
+      historyLabel: 'Escalated for leadership review.',
+    };
+  }
+
+  return null;
 }
 
 function activityLabelForAction(actionId) {

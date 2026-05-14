@@ -1,9 +1,11 @@
 import express from 'express';
 import {
   createWorkItem,
+  getBlockedWorkflowPayload,
   getDashboardPayload,
   getFollowUpPayload,
   initializeDatabase,
+  updateBlockedWorkflowAction,
   updateWorkItemStatus,
 } from './database.js';
 
@@ -27,6 +29,10 @@ app.get('/api/dashboard', (req, res) => {
 
 app.get('/api/follow-ups', (req, res) => {
   res.json(getFollowUpPayload(getFollowUpFilters(req.query)));
+});
+
+app.get('/api/blocked-workflow', (req, res) => {
+  res.json(getBlockedWorkflowPayload(getBlockedWorkflowFilters(req.query)));
 });
 
 app.post('/api/work-items', (req, res) => {
@@ -61,6 +67,39 @@ app.patch('/api/work-items/:id/status', (req, res) => {
   return res.json(result);
 });
 
+app.patch('/api/blocked-workflow/:id/action', (req, res) => {
+  const { action } = req.body;
+
+  if (!['reassign', 'add-note', 'escalate'].includes(action)) {
+    return res.status(400).json({
+      error: 'Unsupported blocked workflow action.',
+    });
+  }
+
+  const validationError = validateBlockedWorkflowAction(req.body);
+
+  if (validationError) {
+    return res.status(400).json({
+      error: validationError,
+    });
+  }
+
+  const result = updateBlockedWorkflowAction(
+    req.params.id,
+    action,
+    req.body,
+    getBlockedWorkflowFilters(req.query),
+  );
+
+  if (!result) {
+    return res.status(404).json({
+      error: 'Work item not found or action did not change the item.',
+    });
+  }
+
+  return res.json(result);
+});
+
 function validateCreateWorkItem(body) {
   const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'nextStep'];
 
@@ -81,6 +120,22 @@ function validateCreateWorkItem(body) {
   return '';
 }
 
+function validateBlockedWorkflowAction(body) {
+  if (body.action === 'reassign') {
+    if (typeof body.owner !== 'string' || body.owner.trim() === '') {
+      return 'owner is required.';
+    }
+  }
+
+  if (body.action === 'add-note') {
+    if (typeof body.note !== 'string' || body.note.trim() === '') {
+      return 'note is required.';
+    }
+  }
+
+  return '';
+}
+
 function getDashboardFilters(query) {
   return {
     department: query.department,
@@ -95,6 +150,15 @@ function getFollowUpFilters(query) {
     owner: query.owner,
     status: query.status,
     priority: query.priority,
+    asOfDate: query.asOfDate,
+  };
+}
+
+function getBlockedWorkflowFilters(query) {
+  return {
+    department: query.department,
+    owner: query.owner,
+    blockerType: query.blockerType,
     asOfDate: query.asOfDate,
   };
 }

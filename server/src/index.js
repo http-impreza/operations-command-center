@@ -1,9 +1,11 @@
 import express from 'express';
 import {
   createWorkItem,
+  createHandoffItem,
   getBlockedWorkflowPayload,
   getDashboardPayload,
   getFollowUpPayload,
+  getHandoffPayload,
   initializeDatabase,
   updateBlockedWorkflowAction,
   updateWorkItemStatus,
@@ -35,6 +37,10 @@ app.get('/api/blocked-workflow', (req, res) => {
   res.json(getBlockedWorkflowPayload(getBlockedWorkflowFilters(req.query)));
 });
 
+app.get('/api/handoffs', (req, res) => {
+  res.json(getHandoffPayload(getHandoffFilters(req.query)));
+});
+
 app.post('/api/work-items', (req, res) => {
   const validationError = validateCreateWorkItem(req.body);
 
@@ -45,6 +51,18 @@ app.post('/api/work-items', (req, res) => {
   }
 
   return res.status(201).json(createWorkItem(req.body, getDashboardFilters(req.query)));
+});
+
+app.post('/api/handoffs', (req, res) => {
+  const validationError = validateCreateHandoff(req.body);
+
+  if (validationError) {
+    return res.status(400).json({
+      error: validationError,
+    });
+  }
+
+  return res.status(201).json(createHandoffItem(req.body, getHandoffFilters(req.query)));
 });
 
 app.patch('/api/work-items/:id/status', (req, res) => {
@@ -120,6 +138,26 @@ function validateCreateWorkItem(body) {
   return '';
 }
 
+function validateCreateHandoff(body) {
+  const requiredFields = ['department', 'shift', 'priority', 'summary'];
+
+  for (const field of requiredFields) {
+    if (typeof body[field] !== 'string' || body[field].trim() === '') {
+      return `${field} is required.`;
+    }
+  }
+
+  if (!['AM', 'PM', 'NOC'].includes(body.shift)) {
+    return 'shift must be AM, PM, or NOC.';
+  }
+
+  if (!['High', 'Medium', 'Low'].includes(body.priority)) {
+    return 'priority must be High, Medium, or Low.';
+  }
+
+  return '';
+}
+
 function validateBlockedWorkflowAction(body) {
   if (body.action === 'reassign') {
     if (typeof body.owner !== 'string' || body.owner.trim() === '') {
@@ -159,6 +197,14 @@ function getBlockedWorkflowFilters(query) {
     department: query.department,
     owner: query.owner,
     blockerType: query.blockerType,
+    asOfDate: query.asOfDate,
+  };
+}
+
+function getHandoffFilters(query) {
+  return {
+    shift: query.shift,
+    department: query.department,
     asOfDate: query.asOfDate,
   };
 }

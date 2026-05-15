@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 const dashboardUrl = '/api/dashboard';
 const followUpsUrl = '/api/follow-ups';
 const blockedWorkflowUrl = '/api/blocked-workflow';
+const handoffsUrl = '/api/handoffs';
 const defaultAsOfDate = '2026-05-12';
 const fallbackDepartments = [
   'Nursing',
@@ -23,7 +24,7 @@ const navigationItems = [
   'Activity Log',
   'Reports',
 ];
-const functionalViews = ['Dashboard', 'Follow-Up', 'Blocked Workflow'];
+const functionalViews = ['Dashboard', 'Follow-Up', 'Blocked Workflow', 'Shift Handoff'];
 const fallbackFilterOptions = {
   departments: fallbackDepartments,
   owners: [],
@@ -36,6 +37,7 @@ const fallbackFilterOptions = {
     'Waiting on Provider',
     'Waiting on Pharmacy',
   ],
+  shifts: ['All', 'AM', 'PM', 'NOC'],
 };
 
 const reviewActions = [
@@ -62,10 +64,13 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [followUps, setFollowUps] = useState(null);
   const [blockedWorkflow, setBlockedWorkflow] = useState(null);
+  const [handoffs, setHandoffs] = useState(null);
   const [error, setError] = useState('');
   const [selectedReview, setSelectedReview] = useState(null);
   const [selectedBlockedItem, setSelectedBlockedItem] = useState(null);
+  const [selectedHandoff, setSelectedHandoff] = useState(null);
   const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
+  const [isHandoffDrawerOpen, setIsHandoffDrawerOpen] = useState(false);
   const [filters, setFilters] = useState({
     department: '',
     owner: '',
@@ -84,6 +89,11 @@ function App() {
     blockerType: '',
     asOfDate: defaultAsOfDate,
   });
+  const [handoffFilters, setHandoffFilters] = useState({
+    shift: '',
+    department: '',
+    asOfDate: defaultAsOfDate,
+  });
 
   useEffect(() => {
     let ignoreResponse = false;
@@ -99,6 +109,7 @@ function App() {
           dashboard: filters,
           followUps: followUpFilters,
           blockedWorkflow: blockedWorkflowFilters,
+          handoffs: handoffFilters,
         }));
 
         if (!response.ok) {
@@ -113,6 +124,9 @@ function App() {
           } else if (activeView === 'Blocked Workflow') {
             setBlockedWorkflow(data);
             setSelectedBlockedItem((current) => selectBlockedItemAfterRefresh(current, data));
+          } else if (activeView === 'Shift Handoff') {
+            setHandoffs(data);
+            setSelectedHandoff((current) => selectHandoffAfterRefresh(current, data));
           } else {
             setDashboard(data);
           }
@@ -130,17 +144,19 @@ function App() {
     return () => {
       ignoreResponse = true;
     };
-  }, [activeView, filters, followUpFilters, blockedWorkflowFilters]);
+  }, [activeView, filters, followUpFilters, blockedWorkflowFilters, handoffFilters]);
 
   const rawFilterOptions =
     filterOptionsForView(activeView, {
       dashboard,
       followUps,
       blockedWorkflow,
+      handoffs,
     }) ??
     dashboard?.filterOptions ??
     followUps?.filterOptions ??
-    blockedWorkflow?.filterOptions;
+    blockedWorkflow?.filterOptions ??
+    handoffs?.filterOptions;
   const filterOptions = normalizeFilterOptions(rawFilterOptions);
 
   async function handleReviewAction(actionId) {
@@ -204,6 +220,16 @@ function App() {
     }
 
     setBlockedWorkflow(await response.json());
+  }
+
+  async function refreshHandoffs() {
+    const response = await fetch(buildHandoffsUrl(handoffFilters));
+
+    if (!response.ok) {
+      throw new Error(`Shift Handoff request failed with ${response.status}`);
+    }
+
+    setHandoffs(await response.json());
   }
 
   function handleBlockedWorkflowLocalAction(actionId) {
@@ -325,12 +351,18 @@ function App() {
               blockedWorkflowFilters={blockedWorkflowFilters}
               filterOptions={filterOptions}
               followUpFilters={followUpFilters}
+              handoffFilters={handoffFilters}
               onChangeBlockedWorkflowFilters={setBlockedWorkflowFilters}
               onChangeDashboardFilters={setFilters}
               onChangeFollowUpFilters={setFollowUpFilters}
+              onChangeHandoffFilters={setHandoffFilters}
               onOpenCreate={() => {
                 setSelectedReview(null);
-                setIsCreateDrawerOpen(true);
+                if (activeView === 'Shift Handoff') {
+                  setIsHandoffDrawerOpen(true);
+                } else {
+                  setIsCreateDrawerOpen(true);
+                }
               }}
             />
           )}
@@ -338,7 +370,8 @@ function App() {
 
         {((activeView === 'Dashboard' && !dashboard) ||
           (activeView === 'Follow-Up' && !followUps) ||
-          (activeView === 'Blocked Workflow' && !blockedWorkflow)) &&
+          (activeView === 'Blocked Workflow' && !blockedWorkflow) ||
+          (activeView === 'Shift Handoff' && !handoffs)) &&
           !error && <p className="status-message">Loading {activeView}...</p>}
 
         {error && (
@@ -391,6 +424,14 @@ function App() {
           />
         )}
 
+        {activeView === 'Shift Handoff' && handoffs && (
+          <ShiftHandoffView
+            handoffs={handoffs}
+            onSelectItem={setSelectedHandoff}
+            selectedItem={selectedHandoff}
+          />
+        )}
+
         {!functionalViews.includes(activeView) && <PlaceholderPage />}
       </main>
 
@@ -424,6 +465,19 @@ function App() {
           }}
         />
       )}
+
+      {isHandoffDrawerOpen && (
+        <CreateHandoffDrawer
+          filterOptions={filterOptions}
+          filters={handoffFilters}
+          onClose={() => setIsHandoffDrawerOpen(false)}
+          onCreated={(nextHandoffs) => {
+            setHandoffs(nextHandoffs);
+            setIsHandoffDrawerOpen(false);
+            setError('');
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -437,6 +491,10 @@ function pageTitleForView(activeView) {
 }
 
 function subtitleForView(activeView) {
+  if (activeView === 'Shift Handoff') {
+    return '24 hour operational awareness feed';
+  }
+
   if (activeView === 'Follow-Up') {
     return 'Full operational work queue';
   }
@@ -456,10 +514,10 @@ function Sidebar({ activeView, onChangeView }) {
   return (
     <aside className="sidebar">
       <div className="brand-block">
-        <span className="brand-mark">OC</span>
+        <span className="brand-mark">PRC</span>
         <div>
-          <strong>Operations</strong>
-          <span>Command Center</span>
+          <strong>Parkside</strong>
+          <span>Retirement Center</span>
         </div>
       </div>
 
@@ -495,24 +553,46 @@ function FilterBar({
   dashboardFilters,
   filterOptions,
   followUpFilters,
+  handoffFilters,
   onChangeBlockedWorkflowFilters,
   onChangeDashboardFilters,
   onChangeFollowUpFilters,
+  onChangeHandoffFilters,
   onOpenCreate,
 }) {
   const filters = filtersForView(activeView, {
     dashboard: dashboardFilters,
     followUps: followUpFilters,
     blockedWorkflow: blockedWorkflowFilters,
+    handoffs: handoffFilters,
   });
   const updateFilters = filterUpdaterForView(activeView, {
     dashboard: onChangeDashboardFilters,
     followUps: onChangeFollowUpFilters,
     blockedWorkflow: onChangeBlockedWorkflowFilters,
+    handoffs: onChangeHandoffFilters,
   });
 
   return (
     <div className="filter-bar" aria-label={`${activeView} filters`}>
+      {activeView === 'Shift Handoff' && (
+        <label>
+          <span>Shift</span>
+          <select
+            value={handoffFilters.shift}
+            onChange={(event) =>
+              onChangeHandoffFilters((current) => ({ ...current, shift: event.target.value }))
+            }
+          >
+            <option value="">All Shifts</option>
+            {filterOptions.shifts
+              .filter((shift) => shift !== 'All')
+              .map((shift) => (
+                <option key={shift}>{shift}</option>
+              ))}
+          </select>
+        </label>
+      )}
       <label>
         <span>Department</span>
         <select
@@ -529,22 +609,24 @@ function FilterBar({
           ))}
         </select>
       </label>
-      <label>
-        <span>Owner</span>
-        <select
-          value={filters.owner}
-          onChange={(event) =>
-            updateFilters((current) => ({ ...current, owner: event.target.value }))
-          }
-        >
-          <option value="">All Owners</option>
-          {filterOptions.owners.map((owner) => (
-            <option key={owner} value={owner}>
-              {owner}
-            </option>
-          ))}
-        </select>
-      </label>
+      {activeView !== 'Shift Handoff' && (
+        <label>
+          <span>Owner</span>
+          <select
+            value={filters.owner}
+            onChange={(event) =>
+              updateFilters((current) => ({ ...current, owner: event.target.value }))
+            }
+          >
+            <option value="">All Owners</option>
+            {filterOptions.owners.map((owner) => (
+              <option key={owner} value={owner}>
+                {owner}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {activeView === 'Follow-Up' && (
         <>
           <label>
@@ -606,7 +688,7 @@ function FilterBar({
         />
       </label>
       <button className="primary-action" type="button" onClick={onOpenCreate}>
-        + New Review
+        {activeView === 'Shift Handoff' ? '+ Add Handoff' : '+ New Review'}
       </button>
     </div>
   );
@@ -799,13 +881,12 @@ function BlockedWorkflowView({
 
                 return (
                   <button
-                    className={`blocked-table-row aging-${item.agingLevel || 'normal'} ${
-                      isSelected ? 'selected' : ''
-                    }`}
-                  key={item.id}
+                    className={`blocked-table-row aging-${item.agingLevel || 'normal'} ${isSelected ? 'selected' : ''
+                      }`}
+                    key={item.id}
                     onClick={() => onSelectItem(item)}
-                  type="button"
-                >
+                    type="button"
+                  >
                     <strong>{item.residentLabel || 'Resident Label'}</strong>
                     <span>{item.reviewType || 'Work Item'}</span>
                     <span>{item.department || 'Unassigned'}</span>
@@ -884,9 +965,8 @@ function BlockedWorkflowDetailPanel({
   }
 
   async function copySummary() {
-    const text = `${item.residentLabel || 'Resident Label'} | ${item.blockerType || 'Blocked'} | Owner: ${
-      item.owner || 'Unassigned'
-    } | Next step: ${item.nextStep || 'No next step recorded.'}`;
+    const text = `${item.residentLabel || 'Resident Label'} | ${item.blockerType || 'Blocked'} | Owner: ${item.owner || 'Unassigned'
+      } | Next step: ${item.nextStep || 'No next step recorded.'}`;
 
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -915,8 +995,8 @@ function BlockedWorkflowDetailPanel({
           </button>
           <div className="more-action-wrap">
             <button type="button" onClick={() => setIsMoreOpen((current) => !current)}>
-            More
-          </button>
+              More
+            </button>
             {isMoreOpen && (
               <div className="more-menu">
                 <button
@@ -1060,6 +1140,104 @@ function BlockedWorkflowDetailPanel({
               </li>
             )}
           </ol>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ShiftHandoffView({ handoffs, onSelectItem, selectedItem }) {
+  const items = Array.isArray(handoffs.items) ? handoffs.items : [];
+
+  return (
+    <div className="handoff-layout">
+      <div className="handoff-main">
+        <section className="panel handoff-feed-panel">
+          <div className="panel-header">
+            <h2>24 Hour Book</h2>
+            <span>{items.length} notes</span>
+          </div>
+          {items.length === 0 && (
+            <p className="empty-state">No handoff items match the current filters.</p>
+          )}
+          <ol className="handoff-feed">
+            {items.map((item) => {
+              const isSelected = selectedItem?.id === item.id;
+
+              return (
+                <li key={item.id}>
+                  <button
+                    className={`handoff-feed-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => onSelectItem(item)}
+                    type="button"
+                  >
+                    <time dateTime={item.occurredAt}>{formatHandoffTime(item.occurredAt)}</time>
+                    <div className="handoff-feed-body">
+                      <div className="handoff-feed-topline">
+                        <StatusPill label={item.shift} tone="blocked" />
+                        <StatusPill
+                          label={item.priority}
+                          tone={priorityTone(item.priority, 'pending')}
+                        />
+                        <span>{item.department}</span>
+                      </div>
+                      <strong>{item.residentLabel || 'Community Note'}</strong>
+                      <p>{item.summary}</p>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+
+        <HandoffDetailPanel item={selectedItem} />
+      </div>
+    </div>
+  );
+}
+
+function HandoffDetailPanel({ item }) {
+  if (!item) {
+    return (
+      <section className="panel handoff-detail-panel empty-detail">
+        <h2>Select a handoff note to preview it.</h2>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel handoff-detail-panel">
+      <div className="blocked-detail-header">
+        <div>
+          <span className="drawer-kicker">{item.department}</span>
+          <h2>{item.residentLabel || 'Community Note'}</h2>
+        </div>
+      </div>
+
+      <dl className="detail-list handoff-detail-list">
+        <div>
+          <dt>Department</dt>
+          <dd>{item.department}</dd>
+        </div>
+        <div>
+          <dt>Shift</dt>
+          <dd>{item.shift}</dd>
+        </div>
+        <div>
+          <dt>Priority</dt>
+          <dd>{item.priority}</dd>
+        </div>
+        <div>
+          <dt>Occurred</dt>
+          <dd>{formatHandoffDateTime(item.occurredAt)}</dd>
+        </div>
+      </dl>
+
+      <div className="blocked-detail-copy">
+        <section>
+          <h3>Note</h3>
+          <p>{item.summary}</p>
         </section>
       </div>
     </section>
@@ -1347,6 +1525,139 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
   );
 }
 
+function CreateHandoffDrawer({ filterOptions, filters, onClose, onCreated }) {
+  const [formData, setFormData] = useState({
+    residentLabel: '',
+    department: filters.department || 'Nursing',
+    shift: filters.shift || 'AM',
+    priority: 'Medium',
+    summary: '',
+  });
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function updateField(field, value) {
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    const requiredFields = ['department', 'shift', 'priority', 'summary'];
+    const missingField = requiredFields.find((field) => String(formData[field]).trim() === '');
+
+    if (missingField) {
+      setFormError('Complete all required fields before adding the handoff.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError('');
+
+    try {
+      const response = await fetch(`/api/handoffs${buildQueryString(filters)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || `Create handoff failed with ${response.status}`);
+      }
+
+      onCreated(result.handoffs);
+    } catch (requestError) {
+      setFormError(requestError.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <aside className="detail-drawer" aria-label="Quick add handoff">
+      <div className="drawer-header">
+        <div>
+          <span className="drawer-kicker">24 hour feed</span>
+          <h2>Quick Add Handoff</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close quick add handoff">
+          Close
+        </button>
+      </div>
+
+      <form className="drawer-body create-form" onSubmit={handleSubmit}>
+        {formError && (
+          <p className="form-message error" role="alert">
+            {formError}
+          </p>
+        )}
+
+        <label>
+          <span>Resident Label</span>
+          <input
+            value={formData.residentLabel}
+            onChange={(event) => updateField('residentLabel', event.target.value)}
+            placeholder="Resident Maple or Community Note"
+          />
+        </label>
+
+        <label>
+          <span>Department</span>
+          <select
+            value={formData.department}
+            onChange={(event) => updateField('department', event.target.value)}
+          >
+            {filterOptions.departments.map((department) => (
+              <option key={department}>{department}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Shift</span>
+          <select value={formData.shift} onChange={(event) => updateField('shift', event.target.value)}>
+            <option>AM</option>
+            <option>PM</option>
+            <option>NOC</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Priority</span>
+          <select
+            value={formData.priority}
+            onChange={(event) => updateField('priority', event.target.value)}
+          >
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Note</span>
+          <textarea
+            value={formData.summary}
+            onChange={(event) => updateField('summary', event.target.value)}
+            placeholder="Concise handoff note."
+            rows="3"
+          />
+        </label>
+
+        <button className="submit-action" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Adding...' : 'Add Handoff'}
+        </button>
+      </form>
+    </aside>
+  );
+}
+
 function BlockedItems({ items }) {
   return (
     <section className="panel side-panel">
@@ -1411,6 +1722,10 @@ function activeViewUrl(activeView, filters) {
     return buildBlockedWorkflowUrl(filters.blockedWorkflow);
   }
 
+  if (activeView === 'Shift Handoff') {
+    return buildHandoffsUrl(filters.handoffs);
+  }
+
   return buildDashboardUrl(filters.dashboard);
 }
 
@@ -1421,6 +1736,10 @@ function filterOptionsForView(activeView, payloads) {
 
   if (activeView === 'Blocked Workflow') {
     return payloads.blockedWorkflow?.filterOptions;
+  }
+
+  if (activeView === 'Shift Handoff') {
+    return payloads.handoffs?.filterOptions;
   }
 
   return payloads.dashboard?.filterOptions;
@@ -1435,6 +1754,10 @@ function filtersForView(activeView, filters) {
     return filters.blockedWorkflow;
   }
 
+  if (activeView === 'Shift Handoff') {
+    return filters.handoffs;
+  }
+
   return filters.dashboard;
 }
 
@@ -1445,6 +1768,10 @@ function filterUpdaterForView(activeView, updaters) {
 
   if (activeView === 'Blocked Workflow') {
     return updaters.blockedWorkflow;
+  }
+
+  if (activeView === 'Shift Handoff') {
+    return updaters.handoffs;
   }
 
   return updaters.dashboard;
@@ -1483,6 +1810,14 @@ function selectBlockedItemAfterRefresh(current, data) {
   }
 
   return data.groupedItems.flatMap((group) => group.items).find((item) => item.id === current.id) ?? null;
+}
+
+function selectHandoffAfterRefresh(current, data) {
+  if (!current || !Array.isArray(data?.items)) {
+    return null;
+  }
+
+  return data.items.find((item) => item.id === current.id) ?? null;
 }
 
 function buildFollowUpSummaryCards(items) {
@@ -1598,6 +1933,7 @@ function normalizeFilterOptions(options = {}) {
     statuses: safeArray(options.statuses, fallbackFilterOptions.statuses),
     priorities: safeArray(options.priorities, fallbackFilterOptions.priorities),
     blockerTypes: safeArray(options.blockerTypes, fallbackFilterOptions.blockerTypes),
+    shifts: safeArray(options.shifts, fallbackFilterOptions.shifts),
   };
 }
 
@@ -1615,6 +1951,10 @@ function buildFollowUpsUrl(filters) {
 
 function buildBlockedWorkflowUrl(filters) {
   return `${blockedWorkflowUrl}${buildQueryString(filters)}`;
+}
+
+function buildHandoffsUrl(filters) {
+  return `${handoffsUrl}${buildQueryString(filters)}`;
 }
 
 function buildQueryString(filters) {
@@ -1642,6 +1982,10 @@ function buildQueryString(filters) {
 
   if (filters.blockerType) {
     params.set('blockerType', filters.blockerType);
+  }
+
+  if (filters.shift) {
+    params.set('shift', filters.shift);
   }
 
   const queryString = params.toString();
@@ -1690,6 +2034,22 @@ function priorityTone(priority, fallback) {
 }
 
 function formatActivityTime(timestamp) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function formatHandoffTime(timestamp) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function formatHandoffDateTime(timestamp) {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',

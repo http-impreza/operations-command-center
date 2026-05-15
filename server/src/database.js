@@ -2,6 +2,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { handoffItems } from './data/seedHandoffItems.js';
 import { dashboardData } from './data/seedWorkItems.js';
 
 const serverSourceDir = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ const blockerTypes = [
   'Waiting on Provider',
   'Waiting on Pharmacy',
 ];
+const handoffShifts = ['All', 'AM', 'PM', 'NOC'];
 const blockingStatuses = [
   'Blocked',
   'Follow-Up Needed',
@@ -82,6 +84,25 @@ export function initializeDatabase() {
       label TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS handoff_items (
+      id TEXT PRIMARY KEY,
+      resident_label TEXT,
+      department TEXT NOT NULL,
+      category TEXT NOT NULL,
+      shift TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      status TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      details TEXT NOT NULL,
+      next_shift_note TEXT NOT NULL,
+      created_by_role TEXT NOT NULL,
+      follow_up_needed INTEGER NOT NULL DEFAULT 0,
+      history TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   migrateDatabase();
@@ -90,6 +111,12 @@ export function initializeDatabase() {
 
   if (existing.count === 0) {
     seedDatabase();
+  }
+
+  const existingHandoffs = db.prepare('SELECT COUNT(*) AS count FROM handoff_items').get();
+
+  if (existingHandoffs.count === 0) {
+    seedHandoffItems();
   }
 }
 
@@ -227,6 +254,100 @@ export function getBlockedWorkflowPayload(filters = {}) {
       ...getFilterOptions(),
       blockerTypes,
     },
+  };
+}
+
+export function getHandoffPayload(filters = {}) {
+  const normalizedFilters = normalizeHandoffFilters(filters);
+  const items = selectHandoffRows(normalizedFilters);
+
+  return {
+    items,
+    filterOptions: getHandoffFilterOptions(),
+  };
+}
+
+function selectHandoffRows(filters) {
+  return db
+    .prepare(
+      `
+        SELECT * FROM handoff_items
+        WHERE occurred_at >= ?
+          AND occurred_at <= ?
+          AND (? = '' OR shift = ?)
+          AND (? = '' OR department = ?)
+        ORDER BY occurred_at DESC, updated_at DESC
+      `,
+    )
+    .all(
+      `${filters.asOfDate}T00:00:00`,
+      `${filters.asOfDate}T23:59:59`,
+      filters.shift,
+      filters.shift,
+      filters.department,
+      filters.department,
+    )
+    .map(mapHandoffRow);
+}
+
+export function createHandoffItem(input, filters = {}) {
+  const now = new Date().toISOString();
+  const id = `handoff-${Date.now()}`;
+  const item = {
+    id,
+    residentLabel: normalizeText(input.residentLabel) || 'Community Note',
+    department: normalizeText(input.department) || 'Nursing',
+    shift: normalizeText(input.shift) || 'AM',
+    priority: normalizeText(input.priority) || 'Medium',
+    occurredAt: occurredAtForHandoff(filters),
+    summary: normalizeText(input.summary),
+  };
+
+  db.prepare(
+    `
+      INSERT INTO handoff_items (
+        id,
+        resident_label,
+        department,
+        category,
+        shift,
+        priority,
+        status,
+        occurred_at,
+        summary,
+        details,
+        next_shift_note,
+        created_by_role,
+        follow_up_needed,
+        history,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  ).run(
+    item.id,
+    item.residentLabel,
+    item.department,
+    '24 Hour Book',
+    item.shift,
+    item.priority,
+    'Inbox',
+    item.occurredAt,
+    item.summary,
+    '',
+    '',
+    'Staff',
+    0,
+    '[]',
+    now,
+    now,
+  );
+  const row = db.prepare('SELECT * FROM handoff_items WHERE id = ?').get(id);
+
+  return {
+    item: mapHandoffRow(row),
+    handoffs: getHandoffPayload(filters),
   };
 }
 
@@ -550,6 +671,60 @@ function seedDatabase() {
   }
 }
 
+function seedHandoffItems() {
+  const now = new Date().toISOString();
+  const insertHandoff = db.prepare(`
+    INSERT INTO handoff_items (
+      id,
+      resident_label,
+      department,
+      category,
+      shift,
+      priority,
+      status,
+      occurred_at,
+      summary,
+      details,
+      next_shift_note,
+      created_by_role,
+      follow_up_needed,
+      history,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  db.exec('BEGIN');
+  try {
+    for (const item of handoffItems) {
+      insertHandoff.run(
+        item.id,
+        item.residentLabel,
+        item.department,
+        '24 Hour Book',
+        item.shift,
+        item.priority,
+        'Inbox',
+        item.occurredAt,
+        item.summary,
+        '',
+        '',
+        'Staff',
+        0,
+        '[]',
+        now,
+        now,
+      );
+    }
+
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 function insertReview(statement, review, queueType, now) {
   statement.run(
     review.id,
@@ -632,6 +807,20 @@ function mapReviewToBlockedItem(review) {
   };
 }
 
+function mapHandoffRow(row) {
+  return {
+    id: row.id,
+    residentLabel: row.resident_label || '',
+    department: row.department,
+    shift: row.shift,
+    priority: row.priority,
+    occurredAt: row.occurred_at,
+    summary: row.summary,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function migrateDatabase() {
   const columns = db.prepare('PRAGMA table_info(work_items)').all();
   const hasDepartment = columns.some((column) => column.name === 'department');
@@ -699,11 +888,48 @@ function getFilterOptions() {
   };
 }
 
+function getHandoffFilterOptions() {
+  const storedDepartments = db
+    .prepare(
+      `
+        SELECT DISTINCT department
+        FROM handoff_items
+        ORDER BY department ASC
+      `,
+    )
+    .all()
+    .map((row) => row.department);
+  return {
+    departments: [...new Set([...departments, ...storedDepartments])],
+    shifts: handoffShifts,
+  };
+}
+
 function normalizeBlockedWorkflowFilters(filters) {
   return {
     ...normalizeFilters(filters),
     blockerType: normalizeBlockerTypeFilter(filters.blockerType),
   };
+}
+
+function normalizeHandoffFilters(filters) {
+  const shift = normalizeFilterValue(filters.shift);
+
+  return {
+    shift: ['AM', 'PM', 'NOC'].includes(shift) ? shift : '',
+    department: normalizeFilterValue(filters.department),
+    asOfDate: isDateString(filters.asOfDate) ? filters.asOfDate : defaultAsOfDate,
+  };
+}
+
+function occurredAtForHandoff(filters) {
+  const asOfDate = isDateString(filters.asOfDate) ? filters.asOfDate : '';
+
+  if (asOfDate) {
+    return `${asOfDate}T${new Date().toTimeString().slice(0, 8)}`;
+  }
+
+  return new Date().toISOString();
 }
 
 function normalizeFilters(filters) {

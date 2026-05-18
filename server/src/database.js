@@ -89,17 +89,10 @@ export function initializeDatabase() {
       id TEXT PRIMARY KEY,
       resident_label TEXT,
       department TEXT NOT NULL,
-      category TEXT NOT NULL,
       shift TEXT NOT NULL,
       priority TEXT NOT NULL,
-      status TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
       summary TEXT NOT NULL,
-      details TEXT NOT NULL,
-      next_shift_note TEXT NOT NULL,
-      created_by_role TEXT NOT NULL,
-      follow_up_needed INTEGER NOT NULL DEFAULT 0,
-      history TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -309,37 +302,23 @@ export function createHandoffItem(input, filters = {}) {
         id,
         resident_label,
         department,
-        category,
         shift,
         priority,
-        status,
         occurred_at,
         summary,
-        details,
-        next_shift_note,
-        created_by_role,
-        follow_up_needed,
-        history,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   ).run(
     item.id,
     item.residentLabel,
     item.department,
-    '24 Hour Book',
     item.shift,
     item.priority,
-    'Inbox',
     item.occurredAt,
     item.summary,
-    '',
-    '',
-    'Staff',
-    0,
-    '[]',
     now,
     now,
   );
@@ -496,13 +475,16 @@ export function createWorkItem(input, filters = {}) {
   const residentLabel = normalizeText(input.residentLabel);
   const owner = normalizeText(input.owner);
   const priority = normalizeText(input.priority);
-  const nextStep = normalizeText(input.nextStep);
   const reviewType = normalizeText(input.reviewType) || 'Service Plan Review';
-  const blocker = normalizeText(input.blocker);
-  const notes = normalizeText(input.notes) || 'Synthetic locally created review item.';
+  const requestedStatus = normalizeCreateStatus(input.status);
+  const status = requestedStatus === 'Active'
+    ? dueDate < defaultAsOfDate ? 'Overdue' : 'Due Soon'
+    : requestedStatus;
+  const blocker = normalizeText(input.blocker) || blockerForCreateStatus(status);
+  const notes = normalizeText(input.notes);
+  const nextStep = normalizeText(input.nextStep) || notes || 'Review note and assign next action.';
 
   const id = `review-${Date.now()}`;
-  const status = dueDate < defaultAsOfDate ? 'Overdue' : 'Due Soon';
   const queueType = status === 'Overdue' ? 'overdueReviews' : 'dueSoonReviews';
   const history = [
     {
@@ -678,21 +660,14 @@ function seedHandoffItems() {
       id,
       resident_label,
       department,
-      category,
       shift,
       priority,
-      status,
       occurred_at,
       summary,
-      details,
-      next_shift_note,
-      created_by_role,
-      follow_up_needed,
-      history,
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec('BEGIN');
@@ -702,17 +677,10 @@ function seedHandoffItems() {
         item.id,
         item.residentLabel,
         item.department,
-        '24 Hour Book',
         item.shift,
         item.priority,
-        'Inbox',
         item.occurredAt,
         item.summary,
-        '',
-        '',
-        'Staff',
-        0,
-        '[]',
         now,
         now,
       );
@@ -828,6 +796,63 @@ function migrateDatabase() {
   if (!hasDepartment) {
     db.exec("ALTER TABLE work_items ADD COLUMN department TEXT NOT NULL DEFAULT 'Nursing'");
     db.exec("UPDATE work_items SET department = 'Nursing' WHERE department IS NULL OR department = ''");
+  }
+
+  const handoffColumns = db.prepare('PRAGMA table_info(handoff_items)').all();
+  const legacyHandoffColumns = [
+    'category',
+    'status',
+    'details',
+    'next_shift_note',
+    'created_by_role',
+    'follow_up_needed',
+    'history',
+  ];
+  const hasLegacyHandoffColumns = handoffColumns.some((column) =>
+    legacyHandoffColumns.includes(column.name),
+  );
+
+  if (hasLegacyHandoffColumns) {
+    db.exec(`
+      ALTER TABLE handoff_items RENAME TO handoff_items_legacy;
+
+      CREATE TABLE handoff_items (
+        id TEXT PRIMARY KEY,
+        resident_label TEXT,
+        department TEXT NOT NULL,
+        shift TEXT NOT NULL,
+        priority TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO handoff_items (
+        id,
+        resident_label,
+        department,
+        shift,
+        priority,
+        occurred_at,
+        summary,
+        created_at,
+        updated_at
+      )
+      SELECT
+        id,
+        resident_label,
+        department,
+        shift,
+        priority,
+        occurred_at,
+        summary,
+        created_at,
+        updated_at
+      FROM handoff_items_legacy;
+
+      DROP TABLE handoff_items_legacy;
+    `);
   }
 }
 
@@ -1281,4 +1306,28 @@ function normalizeDepartment(value) {
   const normalized = normalizeText(value);
 
   return departments.includes(normalized) ? normalized : 'Nursing';
+}
+
+function normalizeCreateStatus(value) {
+  const normalized = normalizeText(value);
+
+  return ['Follow-Up Needed', 'Waiting on Signature', 'Blocked'].includes(normalized)
+    ? normalized
+    : 'Active';
+}
+
+function blockerForCreateStatus(status) {
+  if (status === 'Follow-Up Needed') {
+    return 'Follow-up needed';
+  }
+
+  if (status === 'Waiting on Signature') {
+    return 'Waiting on signature';
+  }
+
+  if (status === 'Blocked') {
+    return 'Operational blocker needs resolution';
+  }
+
+  return '';
 }

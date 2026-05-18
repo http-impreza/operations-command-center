@@ -388,14 +388,150 @@ h1 {
   font-weight: 800;
 }
 
+.queue-panel {
+  overflow: hidden;
+}
+
+.review-queue-list {
+  display: grid;
+  gap: 0;
+}
+
+.review-queue-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid #edf1f5;
+  background: #ffffff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-queue-row:last-child {
+  border-bottom: 0;
+}
+
+.review-queue-row:hover,
+.review-queue-row:focus {
+  background: #f8fafc;
+  outline: none;
+}
+
+.review-queue-row strong,
+.review-queue-row span,
+.review-queue-row p,
+.review-queue-row small {
+  min-width: 0;
+}
+
+.review-queue-row strong,
+.queue-row-main span,
+.review-queue-row p,
+.review-queue-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-queue-row strong {
+  color: #111827;
+  font-size: 0.94rem;
+}
+
+.review-queue-row p {
+  margin: 0;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.queue-row-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.queue-row-main span,
+.review-queue-row small {
+  color: #66758a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.queue-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #e8f5f6;
+  color: #155f68;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.queue-row-pills {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .table-wrap {
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
   min-width: 760px;
+}
+
+.table-panel table {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+.table-panel th:nth-child(1),
+.table-panel td:nth-child(1) {
+  width: 17%;
+}
+
+.table-panel th:nth-child(2),
+.table-panel td:nth-child(2) {
+  width: 18%;
+}
+
+.table-panel th:nth-child(3),
+.table-panel td:nth-child(3) {
+  width: 17%;
+}
+
+.table-panel th:nth-child(4),
+.table-panel td:nth-child(4) {
+  width: 11%;
+}
+
+.table-panel th:nth-child(5),
+.table-panel td:nth-child(5) {
+  width: 11%;
+}
+
+.table-panel th:nth-child(6),
+.table-panel td:nth-child(6) {
+  width: 26%;
+}
+
+.table-panel td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .follow-up-panel {
@@ -774,31 +910,6 @@ table {
   gap: 14px;
 }
 
-.handoff-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.handoff-tabs button {
-  min-height: 34px;
-  padding: 0 13px;
-  border: 1px solid #d8e0e8;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #526071;
-  font-size: 0.84rem;
-  font-weight: 850;
-  cursor: pointer;
-}
-
-.handoff-tabs button.active,
-.handoff-tabs button:hover {
-  border-color: #1c6f79;
-  background: #e8f5f6;
-  color: #155f68;
-}
-
 .handoff-main {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
@@ -884,8 +995,7 @@ table {
   white-space: nowrap;
 }
 
-.handoff-feed-body p,
-.handoff-feed-body small {
+.handoff-feed-body p {
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
@@ -898,24 +1008,28 @@ table {
   font-weight: 700;
 }
 
-.handoff-feed-body small {
-  color: #66758a;
-  font-size: 0.82rem;
-  font-weight: 650;
-}
-
 .handoff-detail-panel {
   display: grid;
   gap: 14px;
   padding: 18px;
 }
 
-.handoff-detail-list {
-  grid-template-columns: 1fr;
-  padding: 14px;
-  border: 1px solid #e1e8ef;
-  border-radius: 8px;
-  background: #fbfcfd;
+.handoff-detail-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.handoff-detail-header h2 {
+  margin: 4px 0 5px;
+  color: #111827;
+  font-size: 1.18rem;
+}
+
+.handoff-detail-header p {
+  margin: 0;
+  color: #66758a;
+  font-size: 0.85rem;
+  font-weight: 750;
 }
 
 .empty-state {
@@ -1002,6 +1116,11 @@ tbody tr:hover {
 .status-pill.blocked {
   background: #f0e7f8;
   color: #673483;
+}
+
+.status-pill.queue-status {
+  background: #eef3f6;
+  color: #526071;
 }
 
 .status-pill.low {
@@ -1123,6 +1242,13 @@ time {
 .drawer-header h2 {
   color: #111827;
   font-size: 1.35rem;
+}
+
+.drawer-subtitle {
+  margin: 4px 0 0;
+  color: #66758a;
+  font-size: 0.84rem;
+  font-weight: 750;
 }
 
 .drawer-header button {
@@ -1280,16 +1406,6 @@ time {
 .create-form label {
   display: grid;
   gap: 7px;
-}
-
-.create-form .checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.create-form .checkbox-row input {
-  width: auto;
 }
 
 .create-form label span {

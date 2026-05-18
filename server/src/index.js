@@ -119,7 +119,7 @@ app.patch('/api/blocked-workflow/:id/action', (req, res) => {
 });
 
 function validateCreateWorkItem(body) {
-  const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'nextStep'];
+  const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'notes'];
 
   for (const field of requiredFields) {
     if (typeof body[field] !== 'string' || body[field].trim() === '') {
@@ -133,6 +133,13 @@ function validateCreateWorkItem(body) {
 
   if (!['High', 'Medium', 'Low'].includes(body.priority)) {
     return 'priority must be High, Medium, or Low.';
+  }
+
+  if (
+    body.status &&
+    !['Active', 'Follow-Up Needed', 'Waiting on Signature', 'Blocked'].includes(body.status)
+  ) {
+    return 'status must be Active, Follow-Up Needed, Waiting on Signature, or Blocked.';
   }
 
   return '';

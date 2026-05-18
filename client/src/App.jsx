@@ -58,7 +58,7 @@ const reviewActions = [
     label: 'Mark Blocked',
   },
 ];
-
+const createReviewStatuses = ['Active', 'Follow-Up Needed', 'Waiting on Signature', 'Blocked'];
 function App() {
   const [activeView, setActiveView] = useState('Dashboard');
   const [dashboard, setDashboard] = useState(null);
@@ -222,16 +222,6 @@ function App() {
     setBlockedWorkflow(await response.json());
   }
 
-  async function refreshHandoffs() {
-    const response = await fetch(buildHandoffsUrl(handoffFilters));
-
-    if (!response.ok) {
-      throw new Error(`Shift Handoff request failed with ${response.status}`);
-    }
-
-    setHandoffs(await response.json());
-  }
-
   function handleBlockedWorkflowLocalAction(actionId) {
     if (!selectedBlockedItem) {
       return;
@@ -239,7 +229,7 @@ function App() {
 
     const timestamp = new Date().toISOString();
     const labels = {
-      unblock: 'marked unblocked for local review',
+      unblock: 'marked unblocked locally',
       reassign: 'reassign requested',
       more: 'opened more options',
     };
@@ -387,7 +377,7 @@ function App() {
             <section className="operations-grid" aria-label="Operations dashboard">
               <ReviewsTable
                 className="span-8"
-                title="Overdue Reviews"
+                title="Overdue Items"
                 items={dashboard.overdueReviews}
                 queueKey="overdueReviews"
                 tone="urgent"
@@ -688,7 +678,7 @@ function FilterBar({
         />
       </label>
       <button className="primary-action" type="button" onClick={onOpenCreate}>
-        {activeView === 'Shift Handoff' ? '+ Add Handoff' : '+ New Review'}
+        {activeView === 'Shift Handoff' ? '+ Add Handoff' : '+ New Item'}
       </button>
     </div>
   );
@@ -709,49 +699,60 @@ function SummaryCards({ cards }) {
 }
 
 function ReviewsTable({ className = '', title, items, queueKey, tone, onSelectReview }) {
+  const queueLabel = queueKey === 'overdueReviews' ? 'Overdue' : 'Due Soon';
+
   return (
-    <section className={`panel table-panel ${className}`}>
+    <section className={`panel queue-panel ${className}`}>
       <PanelHeader title={title} count={items.length} />
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Resident</th>
-              <th>Owner</th>
-              <th>Due</th>
-              <th>Priority</th>
-              <th>Next Step</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr
-                className="clickable-row"
-                key={item.id}
-                onClick={() => onSelectReview({ ...item, queueKey })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelectReview({ ...item, queueKey });
-                  }
-                }}
-                tabIndex={0}
-              >
-                <td>
-                  <strong>{item.residentLabel}</strong>
-                </td>
-                <td>{item.owner}</td>
-                <td>{item.dueDate}</td>
-                <td>
-                  <StatusPill label={item.priority} tone={priorityTone(item.priority, tone)} />
-                </td>
-                <td>{item.nextStep}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {items.length === 0 && <p className="empty-state">No items in this queue.</p>}
+      {items.length > 0 && (
+        <div className="review-queue-list">
+          {items.map((item) => (
+            <ReviewQueueRow
+              item={item}
+              key={item.id}
+              onSelect={() => onSelectReview({ ...item, queueKey })}
+              queueLabel={queueLabel}
+              tone={tone}
+            />
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+function ReviewQueueRow({ item, onSelect, queueLabel, tone }) {
+  function handleKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onSelect();
+    }
+  }
+
+  const note = item.notes || 'No note recorded.';
+  const reviewType = item.reviewType || 'Work Item';
+  const priorityToneValue = priorityTone(item.priority, tone);
+  const initials = residentInitials(item.residentLabel);
+
+  return (
+    <button
+      className="review-queue-row"
+      onClick={onSelect}
+      onKeyDown={handleKeyDown}
+      type="button"
+    >
+      <span className="queue-avatar" aria-hidden="true">{initials}</span>
+      <div className="queue-row-main">
+        <strong>{item.residentLabel}</strong>
+        <span>{reviewType} &bull; {item.owner} &bull; Due {item.dueDate}</span>
+        <p>{note}</p>
+      </div>
+      <div className="queue-row-pills">
+        <StatusPill label={item.priority} tone={priorityToneValue} />
+        <StatusPill label={queueLabel} tone="queue-status" />
+      </div>
+    </button>
   );
 }
 
@@ -934,7 +935,7 @@ function BlockedWorkflowDetailPanel({
   if (!item) {
     return (
       <section className="panel blocked-detail-panel empty-detail">
-        <h2>Select a blocked item to review resolution details.</h2>
+        <h2>Select a blocked item to view resolution details.</h2>
       </section>
     );
   }
@@ -1208,31 +1209,13 @@ function HandoffDetailPanel({ item }) {
 
   return (
     <section className="panel handoff-detail-panel">
-      <div className="blocked-detail-header">
+      <div className="handoff-detail-header">
         <div>
           <span className="drawer-kicker">{item.department}</span>
           <h2>{item.residentLabel || 'Community Note'}</h2>
+          <p>{item.shift} &bull; {item.priority} &bull; {formatHandoffDateTime(item.occurredAt)}</p>
         </div>
       </div>
-
-      <dl className="detail-list handoff-detail-list">
-        <div>
-          <dt>Department</dt>
-          <dd>{item.department}</dd>
-        </div>
-        <div>
-          <dt>Shift</dt>
-          <dd>{item.shift}</dd>
-        </div>
-        <div>
-          <dt>Priority</dt>
-          <dd>{item.priority}</dd>
-        </div>
-        <div>
-          <dt>Occurred</dt>
-          <dd>{formatHandoffDateTime(item.occurredAt)}</dd>
-        </div>
-      </dl>
 
       <div className="blocked-detail-copy">
         <section>
@@ -1245,17 +1228,18 @@ function HandoffDetailPanel({ item }) {
 }
 
 function ReviewDrawer({ review, onApplyAction, onApplyLocalAction, onClose }) {
-  const followUps = Array.isArray(review.followUps) ? review.followUps : [];
   const history = Array.isArray(review.history) ? review.history : [];
+  const shouldShowBlocker = Boolean(review.blocker) && isBlockingStatus(review.status);
 
   return (
-    <aside className="detail-drawer" aria-label="Review details">
+    <aside className="detail-drawer" aria-label="Operational item details">
       <div className="drawer-header">
         <div>
-          <span className="drawer-kicker">{review.reviewType || 'Work Item'}</span>
+          <span className="drawer-kicker">Operational Item</span>
           <h2>{review.residentLabel}</h2>
+          <p className="drawer-subtitle">{review.reviewType || 'Item Type'}</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close review details">
+        <button type="button" onClick={onClose} aria-label="Close item details">
           Close
         </button>
       </div>
@@ -1276,14 +1260,12 @@ function ReviewDrawer({ review, onApplyAction, onApplyLocalAction, onClose }) {
               <dt>Due Date</dt>
               <dd>{review.dueDate}</dd>
             </div>
-            <div>
-              <dt>Signature</dt>
-              <dd>{review.signatureStatus || 'Not started'}</dd>
-            </div>
-            <div>
-              <dt>Blocker</dt>
-              <dd>{review.blocker || 'None'}</dd>
-            </div>
+            {shouldShowBlocker && (
+              <div>
+                <dt>Blocker</dt>
+                <dd>{review.blocker}</dd>
+              </div>
+            )}
           </dl>
         </section>
 
@@ -1313,21 +1295,8 @@ function ReviewDrawer({ review, onApplyAction, onApplyLocalAction, onClose }) {
           </DrawerSection>
         )}
 
-        <DrawerSection title="Next Step">
-          <p>{review.nextStep || 'No next step recorded.'}</p>
-        </DrawerSection>
-
-        <DrawerSection title="Notes">
+        <DrawerSection title="Note">
           <p>{review.notes || 'No notes recorded.'}</p>
-        </DrawerSection>
-
-        <DrawerSection title="Follow-Up Items">
-          <ul className="drawer-checklist">
-            {followUps.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-            {followUps.length === 0 && <li>No follow-up items recorded.</li>}
-          </ul>
         </DrawerSection>
 
         <DrawerSection title="Recent Activity">
@@ -1365,7 +1334,7 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
     dueDate: '',
     priority: 'Medium',
     reviewType: 'Service Plan Review',
-    nextStep: '',
+    status: 'Active',
     notes: '',
   });
   const [formError, setFormError] = useState('');
@@ -1381,11 +1350,11 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
   async function handleSubmit(event) {
     event.preventDefault();
 
-    const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'nextStep'];
+    const requiredFields = ['residentLabel', 'owner', 'dueDate', 'priority', 'notes'];
     const missingField = requiredFields.find((field) => formData[field].trim() === '');
 
     if (missingField) {
-      setFormError('Complete all required fields before creating the review.');
+      setFormError('Complete all required fields before creating the item.');
       return;
     }
 
@@ -1416,13 +1385,13 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
   }
 
   return (
-    <aside className="detail-drawer" aria-label="Create new review">
+    <aside className="detail-drawer" aria-label="Create new item">
       <div className="drawer-header">
         <div>
-          <span className="drawer-kicker">New work item</span>
-          <h2>Create Review</h2>
+          <span className="drawer-kicker">New Item</span>
+          <h2>Create Item</h2>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close create review">
+        <button type="button" onClick={onClose} aria-label="Close create item">
           Close
         </button>
       </div>
@@ -1489,7 +1458,19 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
         </label>
 
         <label>
-          <span>Review Type</span>
+          <span>Status</span>
+          <select
+            value={formData.status}
+            onChange={(event) => updateField('status', event.target.value)}
+          >
+            {createReviewStatuses.map((status) => (
+              <option key={status}>{status}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          <span>Item Type</span>
           <input
             value={formData.reviewType}
             onChange={(event) => updateField('reviewType', event.target.value)}
@@ -1498,17 +1479,7 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
         </label>
 
         <label>
-          <span>Next Step</span>
-          <textarea
-            value={formData.nextStep}
-            onChange={(event) => updateField('nextStep', event.target.value)}
-            placeholder="Confirm owner and prepare review packet."
-            rows="3"
-          />
-        </label>
-
-        <label>
-          <span>Optional Notes</span>
+          <span>Note</span>
           <textarea
             value={formData.notes}
             onChange={(event) => updateField('notes', event.target.value)}
@@ -1518,7 +1489,7 @@ function CreateReviewDrawer({ filters, ownerOptions, onClose, onCreated }) {
         </label>
 
         <button className="submit-action" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Creating...' : 'Create Review'}
+          {isSubmitting ? 'Creating...' : 'Create Item'}
         </button>
       </form>
     </aside>
@@ -1926,6 +1897,13 @@ function isBlockingStatus(status) {
   ].includes(status);
 }
 
+function residentInitials(label = '') {
+  const words = label.split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0]).join('');
+
+  return (initials || 'R').toUpperCase();
+}
+
 function normalizeFilterOptions(options = {}) {
   return {
     departments: safeArray(options.departments, fallbackFilterOptions.departments),
@@ -1993,18 +1971,6 @@ function buildQueryString(filters) {
   return queryString ? `?${queryString}` : '';
 }
 
-function agingTone(agingLevel) {
-  if (agingLevel === 'escalated') {
-    return 'urgent';
-  }
-
-  if (agingLevel === 'warning') {
-    return 'pending';
-  }
-
-  return 'low';
-}
-
 function statusTone(status) {
   if (status === 'Overdue' || status === 'Blocked') {
     return 'urgent';
@@ -2027,7 +1993,7 @@ function priorityTone(priority, fallback) {
   }
 
   if (priority === 'Medium') {
-    return fallback;
+    return 'pending';
   }
 
   return 'low';
@@ -2044,18 +2010,21 @@ function formatActivityTime(timestamp) {
 
 function formatHandoffTime(timestamp) {
   return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   }).format(new Date(timestamp));
 }
 
 function formatHandoffDateTime(timestamp) {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
+  const date = new Date(timestamp);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const year = date.getFullYear();
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+
+  return `${month}/${day}/${year} ${hour}:${minute}`;
 }
 
 export default App;
